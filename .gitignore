@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.so
+.Python
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# Data (raw issues are large, don't commit)
+data/*.json
+data/*.csv
+
+# Docker
+*.log
+
+# Model artifacts
+models/
+*.pt
+*.pkl
+*.bin
+
+# MinIO data
+minio_data/
+
+# Redis data
+dump.rdb
+
+# Traces
+traces/
