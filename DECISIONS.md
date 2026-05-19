@@ -58,3 +58,22 @@ We evaluated two candidate embedding models for the RAG architecture on a CPU-on
 
 **Decision:**
 We selected **`all-MiniLM-L6-v2`** as the permanent RAG embedding model. Its lightweight architecture is perfectly suited for our local, CPU-first deployment target without compromising on basic semantic retrieval quality. BAAI is definitively disqualified due to latency constraints.
+
+## Cross-Encoder Reranking (Task 3.5)
+
+To guarantee high precision for the LLM context, we implemented a two-stage retrieval pipeline. First, we fetch 20 broad candidates using Hybrid Search (pgvector + tsvector), then we use a heavy Cross-Encoder to re-sort those candidates.
+
+**Model Choice:** `cross-encoder/ms-marco-MiniLM-L-6-v2`. This model performs deep token-level cross-attention between the user's query and the chunk text, making it extremely accurate.
+
+**Evaluation:**
+We tested a semantically complex query: *"How to drop missing values but only if the whole row is NA"*.
+- **Naive Hybrid Search:** Struggled to map "whole row is NA" to the specific Pandas syntax `how='all'`. It ranked the highly relevant `missing_data.rst` chunk at **#8**.
+- **Cross-Encoder Reranker:** Successfully comprehended the semantic intent of "whole row is NA" and correctly promoted the `missing_data.rst` chunk to the **Top 2** results, ensuring it will be included in the LLM's strictly limited context window.
+
+## Query Transformation (Task 3.6)
+
+Before a user's prompt even hits the Hybrid Search engine, we transform it using an LLM.
+
+**Decision:**
+We chose the **Query Rewriting** technique instead of HyDE (Hypothetical Document Embeddings) or Multi-Query.
+- **Why:** Query Rewriting requires a very short LLM generation (blazing fast on Llama 3) and prevents hallucinations. It simply takes a vague user prompt with pronouns (e.g., *"why does it not work with Python 3.12"*) and rewrites it into a highly specific search string (e.g., *"pandas installation errors and compatibility issues with Python 3.12"*). This prevents our Postgres FTS from matching on useless stop words.

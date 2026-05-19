@@ -1,8 +1,6 @@
-# Eval Thresholds
 classification:
-  macro_f1: 0.0
-
+  macro_f1: 0.75
 rag:
-  hit_at_5: 0.0
-  faithfulness: 0.0
-  answer_relevancy: 0.0
+  hit_at_5: 0.70
+  faithfulness: 0.75
+  answer_relevancy: 0.60

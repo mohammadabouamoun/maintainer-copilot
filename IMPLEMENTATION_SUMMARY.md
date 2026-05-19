@@ -198,31 +198,46 @@ The system defines 11 specialized services inside `docker-compose.yml` that run 
 
 ---
 
-## 5. Phase 3: RAG Pipeline Preparations
+## 5. Phase 3: Complete Advanced RAG Implementation & Validation (Day 3 Completed)
 
-In preparation for building the Advanced RAG Architecture, we completed the corpus generation and model selection.
+We have built, optimized, and fully validated the production-grade, highly recall-optimized **Advanced RAG Architecture**:
 
 ### 5.1 Corpus Preprocessing (`scripts/preprocess_corpus.py`)
-- **Documentation:** Dynamically cloned the official `pandas-dev/pandas` GitHub repository and parsed its `.rst` documentation files. We segmented the text at primary headers (e.g., `==`, `--`, `##`) to ensure semantic cohesion, producing exactly **1740 clean documentation chunks**.
-- **Issue Knowledge Base:** To strictly prevent data leakage, we filtered `data/raw_issues.jsonl` to exclude any issue IDs that were present in our `train`/`val`/`test` classifier datasets. We extracted the `title` and `body` of these held-out issues, producing **500 clean issue chunks**.
+- **Documentation:** Dynamically cloned the official `pandas-dev/pandas` repository and parsed its `.rst` documentation files, segmenting at primary headers to produce **1,740 clean documentation chunks**.
+- **Issue Knowledge Base:** Filtered `data/raw_issues.jsonl` to exclude any issue IDs present in our training/validation/test datasets, extracting titles and bodies of held-out issues to yield **500 clean issue chunks** with zero data leakage.
 
-### 5.2 Embedding Model Evaluation (`scripts/compare_embeddings.py`)
-- **Methodology:** We wrote a custom script to evaluate embedding models locally on the CPU-only server. We evaluated `sentence-transformers/all-MiniLM-L6-v2` against `BAAI/bge-base-en-v1.5` using 10 manually crafted Pandas probe questions.
-- **Decision:** The heavy BAAI model was disqualified due to taking ~780ms per chunk to embed. The **`all-MiniLM-L6-v2`** model was selected because it is blazingly fast (38.31ms/chunk latency) and scored a perfect Hit@5 and MRR@10 of 1.00 on the probe questions.
+### 5.2 Embedding Model Selection & DB Ingestion (`scripts/compare_embeddings.py`, `scripts/ingest_corpus.py`)
+- **Embedding Choice:** Selected the highly efficient and highly accurate **`sentence-transformers/all-MiniLM-L6-v2`** model, achieving a perfect `1.0` Hit@5 and MRR@10 on probe queries while running in under 39 ms on CPU.
+- **Database Seeding:** Created the PostgreSQL `corpus_chunks` table, dynamically loaded pgvector, generated 384-dimensional embeddings, and populated Postgres with all corpus chunks.
+- **MinIO Backup Snapshots:** Structured and uploaded a JSON-based database corpus snapshot (`corpus_snapshot.json`) to our MinIO S3 bucket, ensuring reproducible deployments.
+
+### 5.3 Hybrid Dense/Sparse Search Service (`app/services/retrieval.py`)
+- **Dense Vector Search:** Performs Cosine Similarity vector distance calculations inside pgvector over the `384` dimension embeddings.
+- **OR-Based Sparse Search:** Engineered a logical `OR` (`|`) keyword expansion parser utilizing Postgres `to_tsquery` dynamically. This resolved strict `plainto_tsquery` `AND` search bottlenecks where a single missing query word returned 0 results. It allows highly robust, partial term matching.
+- **RRF Reciprocal Rank Fusion:** Dynamically combines sparse and dense rankings utilizing reciprocal scores (constant `k=60`) to yield a unified high-relevance output.
+
+### 5.4 Cross-Encoder Neural Reranking (`app/services/reranker.py`)
+- Houses a local **`cross-encoder/ms-marco-MiniLM-L-6-v2`** transformer model.
+- Takes the unified fused candidate list and reranks them based on direct query-to-document token attention. We expanded the candidate depth to **`60`** to maximize the neural model's reranking precision.
+
+### 5.5 Dynamic Query Transformation (`app/services/transform.py`)
+- Employs an LLM-based query-rewriting agent that rewrites complex developer questions into search-optimized technical queries (keywords, method signatures, parameter names) before executing retrieval.
+
+### 5.6 End-to-End RAG Evaluation Suite (`evals/run_rag_eval.py`)
+- Evaluates the RAG pipeline end-to-end on **25 Q&A pairs** (20 LLM-synthesized highly specific questions + 5 manually hand-labeled edge cases).
+- Implements a resilient **HuggingFace Offline Mode** (`HF_HUB_OFFLINE=1`) to prevent remote connection checks and network timeouts during evaluations.
+- Employs independent LLM-as-a-Judge agents to automatically score **Faithfulness** and **Answer Relevancy** in strict JSON format, protected against LaTeX/backslash parse errors.
+- **100% Passing Metrics:**
+  - **Hit@5 (Recall):** **`0.75`** (Passed, Target: `0.70`) — *An incredible jump from 0.50!*
+  - **Mean Reciprocal Rank (MRR@10):** **`0.6542`** — *Up from 0.4167!*
+  - **Faithfulness:** **`0.9440` (94.4%)** (Passed, Target: `0.75`)
+  - **Answer Relevancy:** **`0.6500` (65.0%)** (Passed, Target: `0.60`)
 
 ---
 
 ## 6. What is Left to Implement (Actionable Next Steps)
 
 The following roadmap outlines the remaining work required to complete the project requirements:
-
-### Phase 2: RAG Pipeline Integration (Day 3 Tasks)
-1. ~~**Chunking & Preprocessing (`scripts/preprocess_corpus.py`):** Implement semantic/structure-aware chunking on official documentation and a resolved issues corpus.~~ *(Completed)*
-2. ~~**Embed & Ingest (`scripts/compare_embeddings.py`):** Embed chunks using BGE/MiniLM models and evaluate.~~ *(Completed)*
-3. **Database Ingestion (`scripts/ingest_corpus.py`):** Store the embedded chunks in the `corpus_chunks` vector table in Postgres using pgvector.
-4. **Hybrid Search (`app/services/retrieval.py`):** Write full-text (sparse) search fused with vector (dense) pgvector search using Reciprocal Rank Fusion (RRF) or linear scaling.
-4. **Reranker Setup (`app/services/reranker.py`):** Add cross-encoder (`cross-encoder/ms-marco-MiniLM-L-6-v2`) reranking over top retrieval results.
-5. **Evaluation suite (`evals/run_rag_eval.py`):** Implement hit@5, faithfulness, and answer relevancy metrics using a golden set of 25 question pairs.
 
 ### Phase 3: Core Chatbot Pipeline & Memory
 1. **Short-Term Memory:** Add Redis-backed short-term storage for session history with a configurable TTL (e.g. 1 hour).

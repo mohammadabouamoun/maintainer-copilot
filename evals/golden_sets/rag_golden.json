@@ -1,0 +1,192 @@
+[
+  {
+    "id": "1",
+    "question": "What specific functions are contained in the pandas.plotting module, excluding deregister_matplotlib_converters and register_matplotlib_converters?",
+    "ideal_answer": "The functions contained in the pandas.plotting module, excluding deregister_matplotlib_converters and register_matplotlib_converters, are andrews_curves, autocorrelation_plot, bootstrap_plot, boxplot, lag_plot, parallel_coordinates, plot_params, radviz, scatter_matrix, and table.",
+    "ground_truth_chunk_ids": [
+      "8306ee44-e69e-4b2e-825c-b4a6f53b0f1a"
+    ]
+  },
+  {
+    "id": "2",
+    "question": "What is the expected behavior of the `is_lexsorted()` method when called on the index of a DataFrame created with `pd.MultiIndex.from_product()` and then sorted using `df.sort_index()` in pandas version prior to the fix of issue #15797?",
+    "ideal_answer": "The `is_lexsorted()` method should return `True` after sorting the index with `df.sort_index()`.",
+    "ground_truth_chunk_ids": [
+      "c1c8e30a-d78c-4b11-ba99-f2971d5992a2"
+    ]
+  },
+  {
+    "id": "3",
+    "question": "What is the recommended replacement for the removed 'freq' and 'how' parameters in the rolling/expanding/ewm methods of DataFrame and Series, specifically for version 0.19 and later?",
+    "ideal_answer": "Use resampling before calling the rolling/expanding/ewm methods.",
+    "ground_truth_chunk_ids": [
+      "76c680f3-4528-4448-a178-4406db6c6c10"
+    ]
+  },
+  {
+    "id": "4",
+    "question": "What happens when you use the .dt accessor on a pandas Series containing non-datetime-like values, such as a PeriodIndex or timedelta?",
+    "ideal_answer": "Series.dt will raise a TypeError if you access with a non-datetime-like values.",
+    "ground_truth_chunk_ids": [
+      "21e9044a-ecae-46c8-91d3-0a0ec1ae3687"
+    ]
+  },
+  {
+    "id": "5",
+    "question": "What is the new behavior of the error message when merge keys are categoricals that are not equal in the merge_asof function in version that introduced issue #26136?",
+    "ideal_answer": "merge_asof now gives a more clear error message when merge keys are categoricals that are not equal",
+    "ground_truth_chunk_ids": [
+      "1dc13405-584a-40d9-8ea5-e724fe721716"
+    ]
+  },
+  {
+    "id": "6",
+    "question": "What is the impact of the fix for regression in reading from public S3 buckets on the ability to read Parquet files from directories on S3 in pandas version 1.1.0?",
+    "ideal_answer": "The ability to read Parquet files from directories on S3 is disabled in pandas 1.1.0 due to the fix for regression in reading from public S3 buckets.",
+    "ground_truth_chunk_ids": [
+      "969b141d-71a9-4f77-849f-7e0bf1eb42f4"
+    ]
+  },
+  {
+    "id": "7",
+    "question": "What are the performance enhancements resulting from the Cythonization of the `cache_readonly` function in VBENCH, specifically in terms of micro-performance improvements throughout the code base?",
+    "ideal_answer": "substantial micro-performance enhancements",
+    "ground_truth_chunk_ids": [
+      "55cf8952-611c-4b12-ab63-721d56c2db25"
+    ]
+  },
+  {
+    "id": "8",
+    "question": "What is the corrected behavior of Series.align when other is a DataFrame and method is not None in version that fixed issue #31785?",
+    "ideal_answer": "The regression in Series.align when other is a DataFrame and method is not None has been fixed.",
+    "ground_truth_chunk_ids": [
+      "af285c7a-4244-4dba-af9e-259a11e00dd2"
+    ]
+  },
+  {
+    "id": "9",
+    "question": "What is the default compression method inferred by pandas for a URL with a bz2 file extension when using the python 2 C-engine in version 2.0?",
+    "ideal_answer": "bz2",
+    "ground_truth_chunk_ids": [
+      "960bbe9f-9ef4-4603-8e99-904845dbe5ed"
+    ]
+  },
+  {
+    "id": "10",
+    "question": "What is the default engine used by pandas.read_excel when path_or_buffer is an xls format and xlrd is not installed?",
+    "ideal_answer": "calamine",
+    "ground_truth_chunk_ids": [
+      "d6d9699e-8549-4d82-ba8a-1118d6de5120"
+    ]
+  },
+  {
+    "id": "11",
+    "question": "What is the default value of the separator when using the str.cat method on a Series without specifying the sep parameter?",
+    "ideal_answer": "The default value of the separator is an empty string, sep=''.",
+    "ground_truth_chunk_ids": [
+      "04aac3eb-6d4c-4d8d-b2e1-acab918d5562"
+    ]
+  },
+  {
+    "id": "12",
+    "question": "What is the effect of setting the `bias` parameter to `False` when using the `ewmvar` function with a `com` parameter of 2.0 on the output of the first row when compared to the output when `bias` is `True`?",
+    "ideal_answer": "The first row will be `NaN` when `bias` is `False`.",
+    "ground_truth_chunk_ids": [
+      "f2029d27-061b-4011-bceb-41d0206a8ace"
+    ]
+  },
+  {
+    "id": "13",
+    "question": "What is the default encoding used by the PythonParser class in pandas when dealing with the decimal field, and how has it been fixed in version that addresses issue #29565?",
+    "ideal_answer": "The default encoding used by the PythonParser class in pandas was not set to 'utf-8' when dealing with the decimal field, which was causing a bug. This issue has been fixed in a version that addresses issue #29565.",
+    "ground_truth_chunk_ids": [
+      "2429ec2d-5534-4259-b84f-029fa18f5411"
+    ]
+  },
+  {
+    "id": "14",
+    "question": "What is the fix for the issue where the argument for `ascending` in `Panel.shift` was being interpreted as `True` instead of a boolean value?",
+    "ideal_answer": "The issue has been fixed by adding support for the `freq` parameter to `Panel.shift`.",
+    "ground_truth_chunk_ids": [
+      "8e4525e0-f140-45b1-94e7-fba02394c166"
+    ]
+  },
+  {
+    "id": "15",
+    "question": "What is the minimum version of the openpyxl library required to be compatible with pandas-gbq version 0.17.5?",
+    "ideal_answer": "3.0.10",
+    "ground_truth_chunk_ids": [
+      "0cbc6308-90e0-4bc2-be7c-5de232700afb"
+    ]
+  },
+  {
+    "id": "16",
+    "question": "What is the default behavior when calling `dropna()` on a `MultiIndex` where any level is missing, and how does specifying `how='all'` change this behavior?",
+    "ideal_answer": "By default, `dropna()` on a `MultiIndex` drops values if any level is missing. However, specifying `how='all'` only drops values where all levels are missing.",
+    "ground_truth_chunk_ids": [
+      "1b5ffd1c-5918-4975-b041-ab67bf439d59"
+    ]
+  },
+  {
+    "id": "17",
+    "question": "What is the expected output when calling pd.unique() on a pandas Series containing two Timestamp objects with the same value but different timezone offsets, specifically '2016-01-01T05:00:00.000000000' with tz='US/Eastern' and '2016-01-01T05:00:00.000000000' with tz='US/Eastern', and how does this differ from the output of pd.Index().unique()?",
+    "ideal_answer": "When calling pd.unique() on a pandas Series containing two Timestamp objects with the same value but different timezone offsets, the expected output is an array of datetime64[ns] objects, where the timezone information is lost. In contrast, pd.Index().unique() returns a DatetimeIndex object that preserves the original timezone information.",
+    "ground_truth_chunk_ids": [
+      "c87fbd79-f65f-4a08-a68f-96f7af70f81d"
+    ]
+  },
+  {
+    "id": "18",
+    "question": "What is the exact bug fix for the parsing of microseconds when using the 'format' argument in 'to_datetime' function in pandas, specifically related to issue #4152?",
+    "ideal_answer": "The bug fix for the parsing of microseconds when using the 'format' argument in 'to_datetime' function in pandas is related to issue #4152.",
+    "ground_truth_chunk_ids": [
+      "5c192855-99a8-43ae-914b-a3737c920a9a"
+    ]
+  },
+  {
+    "id": "19",
+    "question": "What is the new behavior of the `DataFrame.describe` method in pandas, specifically regarding the inclusion of new statistics in matplotlib 3.3.0 compatible versions?",
+    "ideal_answer": "The `DataFrame.describe` method now includes additional statistics in matplotlib 3.3.0 compatible versions, but the documentation does not specify what these new statistics are. However, it is likely that the method now includes more detailed information about the data distribution, such as quartiles, skewness, and kurtosis.",
+    "ground_truth_chunk_ids": [
+      "de7a2374-c5b7-4f58-a8c7-a693d4e5d036"
+    ]
+  },
+  {
+    "id": "20",
+    "question": "What is the recommended replacement for using Series.select and DataFrame.select methods with the 'errors' parameter set to 'raise' in pandas version 0.21.0?",
+    "ideal_answer": "Use df.loc[labels.map(crit)] instead, where labels is the index or column labels and crit is the selection criteria.",
+    "ground_truth_chunk_ids": [
+      "47a85f7d-5583-439c-898e-21a85766aaa1"
+    ]
+  },
+  {
+    "id": "21",
+    "question": "How do I drop missing values but only if the whole row is NA?",
+    "ideal_answer": "You can use the `dropna` method on your DataFrame and pass the argument `how='all'`. For example: `df.dropna(how='all')`.",
+    "ground_truth_chunk_ids": []
+  },
+  {
+    "id": "22",
+    "question": "What is the difference between loc and iloc in pandas?",
+    "ideal_answer": "`loc` is primarily label-based data selection, meaning you use row and column labels to access data. `iloc` is integer position-based, meaning you use the numerical index position (0 to n-1).",
+    "ground_truth_chunk_ids": []
+  },
+  {
+    "id": "23",
+    "question": "How can I merge two DataFrames on an index instead of a column?",
+    "ideal_answer": "You can use the `merge` function and pass `left_index=True` and `right_index=True` to merge on the indices of both DataFrames.",
+    "ground_truth_chunk_ids": []
+  },
+  {
+    "id": "24",
+    "question": "Is it possible to read a CSV file but only load specific columns to save memory?",
+    "ideal_answer": "Yes, you can use the `usecols` parameter in `pd.read_csv()` and pass a list of the column names or indices you want to load.",
+    "ground_truth_chunk_ids": []
+  },
+  {
+    "id": "25",
+    "question": "How do I convert a string column containing dates into actual datetime objects?",
+    "ideal_answer": "Use the `pd.to_datetime()` function and pass your string column to it. This will parse the strings and return a datetime Series.",
+    "ground_truth_chunk_ids": []
+  }
+]
