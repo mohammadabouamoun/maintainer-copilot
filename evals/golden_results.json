@@ -1,0 +1,209 @@
+{
+  "summary": {
+    "total_examples": 25,
+    "successful_requests": 25,
+    "accuracy": 0.8,
+    "macro_f1": 0.6388888888888888,
+    "average_latency_ms": 174.95553571998244,
+    "total_latency_ms": 4375.79698799982
+  },
+  "class_metrics": {
+    "bug": {
+      "f1-score": 0.8888888888888888,
+      "precision": 0.8,
+      "recall": 1.0
+    },
+    "feature": {
+      "f1-score": 0.6666666666666666,
+      "precision": 0.6666666666666666,
+      "recall": 0.6666666666666666
+    },
+    "docs": {
+      "f1-score": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "question": {
+      "f1-score": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
+    }
+  },
+  "predictions": [
+    {
+      "id": "pandas-dev/pandas#8540",
+      "true_label": "feature",
+      "predicted_label": "feature",
+      "correct": true,
+      "latency_ms": 99.31533600001785
+    },
+    {
+      "id": "pandas-dev/pandas#8200",
+      "true_label": "feature",
+      "predicted_label": "bug",
+      "correct": false,
+      "latency_ms": 85.19422700010182
+    },
+    {
+      "id": "pandas-dev/pandas#9083",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 277.60913900010564
+    },
+    {
+      "id": "pandas-dev/pandas#8993",
+      "true_label": "docs",
+      "predicted_label": "docs",
+      "correct": true,
+      "latency_ms": 43.05269999986194
+    },
+    {
+      "id": "pandas-dev/pandas#8911",
+      "true_label": "question",
+      "predicted_label": "feature",
+      "correct": false,
+      "latency_ms": 61.936489999879996
+    },
+    {
+      "id": "pandas-dev/pandas#8625",
+      "true_label": "feature",
+      "predicted_label": "feature",
+      "correct": true,
+      "latency_ms": 62.52622300007715
+    },
+    {
+      "id": "pandas-dev/pandas#8505",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 265.2895930000341
+    },
+    {
+      "id": "pandas-dev/pandas#8447",
+      "true_label": "docs",
+      "predicted_label": "docs",
+      "correct": true,
+      "latency_ms": 56.40551399983451
+    },
+    {
+      "id": "pandas-dev/pandas#9599",
+      "true_label": "docs",
+      "predicted_label": "docs",
+      "correct": true,
+      "latency_ms": 82.8332189998946
+    },
+    {
+      "id": "pandas-dev/pandas#8234",
+      "true_label": "docs",
+      "predicted_label": "docs",
+      "correct": true,
+      "latency_ms": 47.70940399976098
+    },
+    {
+      "id": "pandas-dev/pandas#8217",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 281.7716230001679
+    },
+    {
+      "id": "pandas-dev/pandas#8471",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 240.75899899980868
+    },
+    {
+      "id": "pandas-dev/pandas#8900",
+      "true_label": "question",
+      "predicted_label": "feature",
+      "correct": false,
+      "latency_ms": 58.82686199993259
+    },
+    {
+      "id": "pandas-dev/pandas#8955",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 275.3516210000271
+    },
+    {
+      "id": "pandas-dev/pandas#9926",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 96.28582499999538
+    },
+    {
+      "id": "pandas-dev/pandas#8209",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 305.95116599988614
+    },
+    {
+      "id": "pandas-dev/pandas#8844",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 347.90424699986033
+    },
+    {
+      "id": "pandas-dev/pandas#9592",
+      "true_label": "feature",
+      "predicted_label": "feature",
+      "correct": true,
+      "latency_ms": 310.53436699994563
+    },
+    {
+      "id": "pandas-dev/pandas#8902",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 165.3861270001471
+    },
+    {
+      "id": "pandas-dev/pandas#9703",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 197.91001800012964
+    },
+    {
+      "id": "pandas-dev/pandas#9093",
+      "true_label": "feature",
+      "predicted_label": "feature",
+      "correct": true,
+      "latency_ms": 123.12341899996682
+    },
+    {
+      "id": "pandas-dev/pandas#8137",
+      "true_label": "question",
+      "predicted_label": "bug",
+      "correct": false,
+      "latency_ms": 103.51412099998925
+    },
+    {
+      "id": "pandas-dev/pandas#8685",
+      "true_label": "feature",
+      "predicted_label": "bug",
+      "correct": false,
+      "latency_ms": 315.41563200016753
+    },
+    {
+      "id": "pandas-dev/pandas#9311",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 254.22363999996378
+    },
+    {
+      "id": "pandas-dev/pandas#8674",
+      "true_label": "bug",
+      "predicted_label": "bug",
+      "correct": true,
+      "latency_ms": 215.05888100000448
+    }
+  ]
+}

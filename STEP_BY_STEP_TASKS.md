@@ -22,7 +22,7 @@
 
 ### 1.1 Repo Skeleton
 
-- [ ] Create the directory tree:
+- [x] Create the directory tree:
   ```
   app/
     api/          # FastAPI routers only
@@ -46,13 +46,13 @@
   SECURITY.md
   ARCH.md
   ```
-- [ ] **Verify:** `ls` shows the tree. Commit as `chore: repo skeleton`.
+- [x] **Verify:** `ls` shows the tree. Commit as `chore: repo skeleton`.
 
 ---
 
 ### 1.2 Docker Compose — All Services
 
-- [ ] Write `docker-compose.yml` with all 10 services. Use health checks and `depends_on` conditions:
+- [x] Write `docker-compose.yml` with all 10 services. Use health checks and `depends_on` conditions:
   ```yaml
   # Key patterns:
   # - migrate depends_on db (healthy), exits with code 0
@@ -60,13 +60,13 @@
   # - chatbot depends_on api (healthy)
   # - modelserver is independent (api calls it over HTTP)
   ```
-- [ ] Pin image versions:
+- [x] Pin image versions:
   - `postgres:16-alpine` with `pgvector/pgvector:pg16`
   - `redis:7-alpine`
   - `minio/minio`
   - `hashicorp/vault` (dev mode: `VAULT_DEV_ROOT_TOKEN_ID` from `.env`)
-- [ ] Set `PYTHONPATH=/app` and mount `./app:/app` for hot-reload in dev.
-- [ ] **Verify:** `docker-compose up db redis minio vault` — all four start and health-check green. Check with `docker-compose ps`.
+- [x] Set `PYTHONPATH=/app` and mount `./app:/app` for hot-reload in dev.
+- [x] **Verify:** `docker-compose up db redis minio vault` — all four start and health-check green. Check with `docker-compose ps`.
 
 ---
 

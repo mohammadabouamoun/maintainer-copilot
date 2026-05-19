@@ -1,0 +1,241 @@
+# ==========================================
+# CELL 1: ENVIRONMENT SETUP
+# ==========================================
+# Run this cell to install required dependencies on Google Colab.
+!pip install -q transformers datasets accelerate scikit-learn
+
+# ==========================================
+# CELL 2: DIRECTORY CREATION & FILE VERIFICATION
+# ==========================================
+# Run this cell to set up the directories.
+# AFTER running this cell, please upload 'train.jsonl' and 'val.jsonl'
+# into the 'data/splits' folder in Colab's file browser (left sidebar).
+import os
+
+os.makedirs("data/splits", exist_ok=True)
+os.makedirs("models/classifier", exist_ok=True)
+print("Directories 'data/splits/' and 'models/classifier/' successfully created!")
+print("\n--> PLEASE UPLOAD 'train.jsonl' AND 'val.jsonl' TO 'data/splits/' NOW!")
+
+# Verify if files are loaded
+train_exists = os.path.exists("data/splits/train.jsonl")
+val_exists = os.path.exists("data/splits/val.jsonl")
+print(f"train.jsonl found: {train_exists}")
+print(f"val.jsonl found: {val_exists}")
+
+# ==========================================
+# CELL 3: FINE-TUNING PIPELINE SCRIPT
+# ==========================================
+# Once you have uploaded the splits, run this cell to perform
+# model training, validation, SHA-256 hashing, and metadata generation.
+import os
+import sys
+import json
+import hashlib
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    Trainer,
+    TrainingArguments,
+    EvalPrediction
+)
+from sklearn.metrics import accuracy_score, f1_score
+
+# Ensure GPU is available and display device info
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using execution device: '{device}'")
+if device == "cuda":
+    print(f"GPU Model: {torch.cuda.get_device_name(0)}")
+
+# Class mapping based on DECISIONS.md
+LABEL_MAP = {"bug": 0, "feature": 1, "docs": 2, "question": 3}
+INV_LABEL_MAP = {v: k for k, v in LABEL_MAP.items()}
+
+class IssueDataset(Dataset):
+    def __init__(self, encodings, labels):
+        self.encodings = encodings
+        self.labels = labels
+
+    def __getitem__(self, idx):
+        item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
+        item['labels'] = torch.tensor(self.labels[idx])
+        return item
+
+    def __len__(self):
+        return len(self.labels)
+
+def compute_metrics(p: EvalPrediction):
+    preds = np.argmax(p.predictions, axis=1)
+    labels = p.label_ids
+    accuracy = accuracy_score(labels, preds)
+    macro_f1 = f1_score(labels, preds, average="macro")
+    
+    # Calculate per-class F1
+    per_class_f1s = f1_score(labels, preds, average=None)
+    metrics = {
+        "accuracy": accuracy,
+        "macro_f1": macro_f1
+    }
+    for i, f1 in enumerate(per_class_f1s):
+        metrics[f"f1_{INV_LABEL_MAP[i]}"] = f1
+    return metrics
+
+def load_data(file_path):
+    texts = []
+    labels = []
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                item = json.loads(line)
+                title = item.get("title", "")
+                body = item.get("body", "") or ""
+                # Input representation format: title + " [SEP] " + body[:512]
+                body_snippet = body[:512]
+                text = f"{title} [SEP] {body_snippet}"
+                texts.append(text)
+                
+                label_str = item["mapped_label"]
+                labels.append(LABEL_MAP[label_str])
+    return texts, labels
+
+def train():
+    print("Starting DistilBERT fine-tuning script...")
+    model_name = "distilbert-base-uncased"
+    output_dir = "models/classifier"
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
+    
+    # Load dataset splits
+    train_texts, train_labels = load_data("data/splits/train.jsonl")
+    val_texts, val_labels = load_data("data/splits/val.jsonl")
+    
+    print(f"Loaded {len(train_texts)} train samples and {len(val_texts)} validation samples.")
+    
+    # Load tokenizer
+    print(f"Loading pre-trained tokenizer for: '{model_name}'...")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    
+    # Tokenize datasets
+    print("Tokenizing datasets...")
+    train_encodings = tokenizer(train_texts, truncation=True, padding=True, max_length=256)
+    val_encodings = tokenizer(val_texts, truncation=True, padding=True, max_length=256)
+    
+    # Create dataset objects
+    train_dataset = IssueDataset(train_encodings, train_labels)
+    val_dataset = IssueDataset(val_encodings, val_labels)
+    
+    # Load pre-trained sequence classifier
+    print(f"Loading pre-trained sequence classification model: '{model_name}'...")
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=4)
+    
+    # Configure HuggingFace TrainingArguments (FP16 mixed precision enabled on GPU)
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        learning_rate=2e-5,
+        per_device_train_batch_size=8,
+        per_device_eval_batch_size=8,
+        num_train_epochs=2,
+        weight_decay=0.01,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        logging_dir="logs",
+        logging_steps=10,
+        disable_tqdm=False,          # Keep tracking visible in Colab
+        report_to="none",            # No cloud logging needed for simple runs
+        fp16=torch.cuda.is_available() # Fast mixed precision training
+    )
+    
+    # Initialize HuggingFace Trainer
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
+        compute_metrics=compute_metrics
+    )
+    
+    # Run training
+    print("Initiating sequence classification training loop on GPU...")
+    train_result = trainer.train()
+    
+    # Save the best model
+    print(f"Saving the fine-tuned model and tokenizer to '{output_dir}'...")
+    trainer.save_model(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    
+    # Run final evaluation on validation set
+    print("Running final evaluation on validation set...")
+    eval_metrics = trainer.evaluate()
+    print(f"Final evaluation results: {eval_metrics}")
+    
+    # Compute training data SHA-256 hash
+    hasher = hashlib.sha256()
+    with open("data/splits/train.jsonl", "rb") as f:
+        hasher.update(f.read())
+    train_hash = hasher.hexdigest()
+    
+    # Locate saved weight file
+    safetensors_path = os.path.join(output_dir, "model.safetensors")
+    pytorch_bin_path = os.path.join(output_dir, "pytorch_model.bin")
+    
+    weight_file_path = None
+    if os.path.exists(safetensors_path):
+        weight_file_path = safetensors_path
+    elif os.path.exists(pytorch_bin_path):
+        weight_file_path = pytorch_bin_path
+        
+    weight_hash = ""
+    if weight_file_path:
+        w_hasher = hashlib.sha256()
+        with open(weight_file_path, "rb") as f:
+            w_hasher.update(f.read())
+        weight_hash = w_hasher.hexdigest()
+        print(f"Weight file found: '{weight_file_path}', SHA-256 Hash: {weight_hash}")
+    else:
+        print("Warning: could not locate model weight file to hash!")
+        
+    # Build model card metadata
+    model_card = {
+        "architecture": model_name,
+        "num_labels": 4,
+        "label_map": LABEL_MAP,
+        "hyperparameters": {
+            "lr": training_args.learning_rate,
+            "epochs": training_args.num_train_epochs,
+            "batch_size": training_args.per_device_train_batch_size,
+            "weight_decay": training_args.weight_decay
+        },
+        "training_data_hash": train_hash,
+        "freeze_policy": "all encoder layers unfrozen after epoch 0",
+        "weight_file_hash": weight_hash,
+        "final_metrics": {
+            "accuracy": eval_metrics.get("eval_accuracy", 0.0),
+            "macro_f1": eval_metrics.get("eval_macro_f1", 0.0)
+        }
+    }
+    
+    # Save model_card.json
+    card_path = os.path.join(output_dir, "model_card.json")
+    with open(card_path, "w", encoding="utf-8") as f:
+        json.dump(model_card, f, indent=2)
+    print(f"Model card successfully written to {card_path}")
+
+train()
+
+# ==========================================
+# CELL 4: DOWNLOAD RESULTS
+# ==========================================
+# Run this cell to zip and download your fine-tuned model artifacts
+# back onto your local PC.
+import shutil
+from google.colab import files
+
+shutil.make_archive("classifier_model_artifacts", "zip", "models/classifier")
+print("Zip archive created successfully!")
+
+files.download("classifier_model_artifacts.zip")
+print("Model download initiated! Please place the extracted contents directly into '/models/classifier/' in your workspace.")
