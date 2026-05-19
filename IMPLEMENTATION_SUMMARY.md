@@ -198,14 +198,29 @@ The system defines 11 specialized services inside `docker-compose.yml` that run 
 
 ---
 
-## 5. What is Left to Implement (Actionable Next Steps)
+## 5. Phase 3: RAG Pipeline Preparations
+
+In preparation for building the Advanced RAG Architecture, we completed the corpus generation and model selection.
+
+### 5.1 Corpus Preprocessing (`scripts/preprocess_corpus.py`)
+- **Documentation:** Dynamically cloned the official `pandas-dev/pandas` GitHub repository and parsed its `.rst` documentation files. We segmented the text at primary headers (e.g., `==`, `--`, `##`) to ensure semantic cohesion, producing exactly **1740 clean documentation chunks**.
+- **Issue Knowledge Base:** To strictly prevent data leakage, we filtered `data/raw_issues.jsonl` to exclude any issue IDs that were present in our `train`/`val`/`test` classifier datasets. We extracted the `title` and `body` of these held-out issues, producing **500 clean issue chunks**.
+
+### 5.2 Embedding Model Evaluation (`scripts/compare_embeddings.py`)
+- **Methodology:** We wrote a custom script to evaluate embedding models locally on the CPU-only server. We evaluated `sentence-transformers/all-MiniLM-L6-v2` against `BAAI/bge-base-en-v1.5` using 10 manually crafted Pandas probe questions.
+- **Decision:** The heavy BAAI model was disqualified due to taking ~780ms per chunk to embed. The **`all-MiniLM-L6-v2`** model was selected because it is blazingly fast (38.31ms/chunk latency) and scored a perfect Hit@5 and MRR@10 of 1.00 on the probe questions.
+
+---
+
+## 6. What is Left to Implement (Actionable Next Steps)
 
 The following roadmap outlines the remaining work required to complete the project requirements:
 
 ### Phase 2: RAG Pipeline Integration (Day 3 Tasks)
-1. **Chunking & Preprocessing (`scripts/preprocess_corpus.py`):** Implement semantic/structure-aware chunking on official documentation and a resolved issues corpus.
-2. **Embed & Ingest (`scripts/ingest_corpus.py`):** Embed chunks using BGE/MiniLM models and store them in the `corpus_chunks` vector table in Postgres.
-3. **Hybrid Search (`app/services/retrieval.py`):** Write full-text (sparse) search fused with vector (dense) pgvector search using Reciprocal Rank Fusion (RRF) or linear scaling.
+1. ~~**Chunking & Preprocessing (`scripts/preprocess_corpus.py`):** Implement semantic/structure-aware chunking on official documentation and a resolved issues corpus.~~ *(Completed)*
+2. ~~**Embed & Ingest (`scripts/compare_embeddings.py`):** Embed chunks using BGE/MiniLM models and evaluate.~~ *(Completed)*
+3. **Database Ingestion (`scripts/ingest_corpus.py`):** Store the embedded chunks in the `corpus_chunks` vector table in Postgres using pgvector.
+4. **Hybrid Search (`app/services/retrieval.py`):** Write full-text (sparse) search fused with vector (dense) pgvector search using Reciprocal Rank Fusion (RRF) or linear scaling.
 4. **Reranker Setup (`app/services/reranker.py`):** Add cross-encoder (`cross-encoder/ms-marco-MiniLM-L-6-v2`) reranking over top retrieval results.
 5. **Evaluation suite (`evals/run_rag_eval.py`):** Implement hit@5, faithfulness, and answer relevancy metrics using a golden set of 25 question pairs.
 
@@ -221,7 +236,7 @@ The following roadmap outlines the remaining work required to complete the proje
 
 ---
 
-## 6. Engineering Standards & Strict Guidelines
+## 7. Engineering Standards & Strict Guidelines
 
 Maintain the following guidelines across subsequent chats:
 - **Async everywhere:** Do not use blocking operations (`requests`, `time.sleep`, synchronous DB) inside ASGI applications. Use `httpx.AsyncClient`, `asyncio.sleep`, and `asyncio.to_thread`.

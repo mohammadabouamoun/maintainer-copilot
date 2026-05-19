@@ -34,3 +34,27 @@ FastAPI native labels → project categories:
 We selected the **Fine-tuned Transformer (DistilBERT)** model for deployment on the microservice classifier endpoint. Although the Zero-Shot LLM baseline yields the highest overall accuracy (76.33%) and Macro-F1 (73.93%)—handling the underrepresented `question` class extremely well due to its pre-trained general knowledge—its average inference latency of **934.84 ms** per sample presents a significant bottleneck for real-time issue sorting pipelines. Furthermore, the LLM baseline carries ongoing API costs ($0.0333 per 1k requests) and presents data leakage risks as incoming raw issue descriptions would be transmitted to external servers. 
 
 The Fine-tuned DistilBERT model strikes the optimal engineering balance: it provides high accuracy (71.19%) and a major improvement in `feature` F1 (64.49% vs 57.73% for Classical ML), operates locally with highly respectable CPU inference latency of **169.64 ms** (comfortably within our 200 ms real-time latency budget), is completely free to query once deployed, and guarantees absolute data privacy. While the Classical ML baseline is extremely fast (0.27 ms), its classification quality is noticeably weaker, making the local Fine-tuned DistilBERT Transformer our definitive production choice.
+
+## RAG Corpus Preprocessing (Task 3.1)
+
+### Documentation Parsing
+- Instead of web-scraping HTML, we clone the master `pandas` repository to a temporary local directory and directly parse its markdown and RST documentation files.
+- We segment the text by primary headers (`#`, `##`, `==`, `--`) to ensure boundaries encapsulate logically cohesive, semantic chunks rather than arbitrary character splits.
+
+### Issue Corpus Generation
+- The issue corpus is extracted from the `data/raw_issues.jsonl` file.
+- To strictly prevent data leakage and skewed RAG evaluation later on, any issue `id` present in `train.jsonl`, `val.jsonl`, or `test.jsonl` is excluded from the RAG knowledge base.
+- To avoid GitHub API rate limits (since `data/raw_issues.jsonl` only stores comment counts rather than actual text), we use the issue `title` + `body` as the contextual chunk for the held-out "resolved" issues.
+
+## Embedding Model Choice (Task 3.2)
+
+We evaluated two candidate embedding models for the RAG architecture on a CPU-only environment:
+1. `sentence-transformers/all-MiniLM-L6-v2` (90MB)
+2. `BAAI/bge-base-en-v1.5` (438MB)
+
+**Results:**
+- **`all-MiniLM-L6-v2`**: Achieved a blazingly fast inference latency of **~38.31 ms/chunk**. On our 10-question Pandas probe dataset, it achieved a perfect **Hit@5 of 1.00** and **MRR@10 of 1.00**.
+- **`BAAI/bge-base-en-v1.5`**: Exhibited severe CPU inference latency (~780 ms/chunk), taking over 20 minutes to embed the tiny 1500-chunk sample corpus. 
+
+**Decision:**
+We selected **`all-MiniLM-L6-v2`** as the permanent RAG embedding model. Its lightweight architecture is perfectly suited for our local, CPU-first deployment target without compromising on basic semantic retrieval quality. BAAI is definitively disqualified due to latency constraints.
