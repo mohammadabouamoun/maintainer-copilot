@@ -35,3 +35,6 @@ dump.rdb
 
 # Traces
 traces/
+
+# RAG Corpus Data
+data/corpus/
