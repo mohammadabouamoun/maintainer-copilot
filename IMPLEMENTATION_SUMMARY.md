@@ -233,6 +233,20 @@ We have built, optimized, and fully validated the production-grade, highly recal
   - **Faithfulness:** **`0.9440` (94.4%)** (Passed, Target: `0.75`)
   - **Answer Relevancy:** **`0.6500` (65.0%)** (Passed, Target: `0.60`)
 
+### 5.7 Enterprise-Grade Security Redaction Layer (`app/infra/redaction.py`, `app/infra/tracing.py`)
+- **10 Compile Regex Patterns:** Scruse sensitive tokens (OpenAI, GitHub, AWS, JWTs, Private PEM keys, emails, credit cards, Slack webhooks, DB connection strings, and IP addresses) from raw strings.
+- **Global Logging Interceptor:** Overrode Python's standard `logging.Handler.handle` and `structlog`'s pipeline globally, ensuring that every log record created in the system (by internal code or third-party libraries) is intercepted and scrubbed in-place.
+- **Global OpenTelemetry Tracing Processor:** Wrote a custom `RedactingSpanProcessor` that intercepts spans on export and sanitizes all direct attributes and error event properties.
+- **Long-Term Memory Safety:** Hardcoded a redaction boundary on `write_long_term()` inside `app/services/memory.py` to prevent sensitive credentials from ever leaking to vector indexes.
+- **Wiring Verification Test:** Verified using comprehensive end-to-end integration tests that log messages, trace spans, and memory records containing fake keys (`sk-test1234567890abcdef`) are strictly and successfully replaced with `[REDACTED_API_KEY]`.
+
+### 5.8 High-Observability Exception Handling & Request Correlation Refactor (`app/domain/exceptions.py`, `app/main.py`)
+- **Unified Domain Exception Hierarchy:** Structured domain exceptions mapping to HTTP status presets: `NotFoundError` (404), `PermissionDenied` (403), `TooManyRequestsError` (429), `ToolFailure` (502), `VaultUnavailableError` (503), `ModelServerError` (502), and `RequestIDNotFoundError` (500).
+- **Correlation Middleware:** Registered `RequestIdMiddleware` to dynamically stamp and verify incoming/outgoing HTTP operations with a unique `X-Request-ID` correlation token (UUIDv4) stored in the ASGI context.
+- **Client Shielding & Error Formatting:** Configured custom exception handlers returning standard JSON structures. Unhandled errors (e.g. `ZeroDivisionError`) are intercepted and returned as generic 500 `"INTERNAL_SERVER_ERROR"` formats with correlation IDs, masking all internal traceback leaks from clients.
+- **Active Distributed Trace & Request Log Correlation:** Hooked global handlers to dynamically resolve standard `request_id` and OpenTelemetry distributed `trace_id` properties, matching both to `structlog` error records to provide full E2E system observability.
+- **Defense-in-Depth Redaction:** Configured handlers to explicitly run standard redaction filters on exception messages and tracebacks before passing them to internal log handlers.
+
 ---
 
 ## 6. What is Left to Implement (Actionable Next Steps)

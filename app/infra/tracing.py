@@ -1,17 +1,55 @@
 import functools
 import inspect
 from contextlib import contextmanager
-from typing import Any, Callable, TypeVar, cast
+from typing import Any, Callable, TypeVar, cast, Optional
 
 from fastapi import FastAPI
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, ReadableSpan
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from app.infra.redaction import redact
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+class RedactingSpanProcessor(SpanProcessor):
+    """
+    OpenTelemetry SpanProcessor that globally filters and redacts sensitive data
+    from all span attributes and event/exception attributes before they are exported.
+    """
+    def __init__(self, span_processor: SpanProcessor):
+        self.span_processor = span_processor
+
+    def on_start(self, span: Any, parent_context: Optional[Any] = None) -> None:
+        self.span_processor.on_start(span, parent_context)
+
+    def on_end(self, span: ReadableSpan) -> None:
+        # 1. Redact direct span attributes (BoundedDict is mutable)
+        if hasattr(span, "_attributes") and span._attributes is not None:
+            for k, v in list(span._attributes.items()):
+                if isinstance(v, str):
+                    span._attributes[k] = redact(v)
+                elif isinstance(v, (list, tuple)):
+                    span._attributes[k] = [redact(item) if isinstance(item, str) else item for item in v]
+        
+        # 2. Redact event attributes (e.g. exceptions, errors)
+        if hasattr(span, "_events") and span._events:
+            for event in span._events:
+                if hasattr(event, "attributes") and event.attributes:
+                    for k, v in list(event.attributes.items()):
+                        if isinstance(v, str):
+                            event.attributes[k] = redact(v)
+
+        self.span_processor.on_end(span)
+
+    def shutdown(self) -> None:
+        self.span_processor.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return self.span_processor.force_flush(timeout_millis)
+
 
 def setup_tracing(app: FastAPI, service_name: str = "maintainers-copilot-api", otlp_endpoint: str = "http://jaeger:4317") -> None:
     """
@@ -27,9 +65,10 @@ def setup_tracing(app: FastAPI, service_name: str = "maintainers-copilot-api", o
     # 2. Setup the Tracer Provider
     provider = TracerProvider(resource=resource)
     
-    # 3. Configure the OTLP Span Exporter pointing to Jaeger
+    # 3. Configure the OTLP Span Exporter pointing to Jaeger with global redaction
     exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
-    processor = BatchSpanProcessor(exporter)
+    raw_processor = BatchSpanProcessor(exporter)
+    processor = RedactingSpanProcessor(raw_processor)
     provider.add_span_processor(processor)
     
     # 4. Set the global tracer provider
