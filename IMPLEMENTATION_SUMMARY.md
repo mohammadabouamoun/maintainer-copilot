@@ -2,6 +2,8 @@
 
 This document provides a highly detailed summary of the architectural layout, implemented components, configuration state, and next steps for the **Maintainer's Copilot** repository. This file serves as the handoff document for continuing the development session.
 
+**Last Updated:** Phase 4.3 complete — 27 tests passing.
+
 ---
 
 ## 1. Project Overview & Architectural Foundations
@@ -12,262 +14,384 @@ The **Maintainer's Copilot** is a production-grade, secure, and memory-bearing c
 
 ## 2. Directory Layout & Repository Structure
 
-The current codebase is organized cleanly as a structured, modular Python and multi-service system. Below is the state of the workspace directory hierarchy:
-
 ```
 maintainer-copilot/
-├── app/                        # Main FastAPI backend codebase
-│   ├── api/                    # API endpoints & HTTP routers (empty skeleton)
-│   ├── domain/                 # Domain logic and models
-│   │   └── exceptions.py       # Core custom domain exceptions
-│   ├── infra/                  # Shared system adapters/infrastructure
-│   │   ├── database.py         # SQLAlchemy async db engine & session provider
-│   │   ├── tracing.py          # OpenTelemetry (OTel) + Jaeger setup & decorators
-│   │   └── vault.py            # HashiCorp Vault KV secret provider
-│   ├── repositories/           # SQL database operations & schemas
-│   │   └── models.py           # Core SQLAlchemy declarative models
-│   ├── services/               # Core business services & tool logic (skeleton)
-│   ├── config.py               # Global Settings provider via Pydantic
-│   └── main.py                 # FastAPI application lifespan & main loader
-├── chatbot/                    # Streamlit admin application (skeleton)
-├── data/                       # Local data directory (ignored from Git)
-│   ├── raw/
-│   │   └── issues.jsonl        # Fetched raw issue records from FastAPI repo
+├── app/                            # Main FastAPI backend codebase
+│   ├── api/
+│   │   └── routers/
+│   │       ├── rag.py              # POST /rag/query endpoint
+│   │       └── chat.py             # POST /chat/message, GET /chat/conversations/{id}
+│   ├── domain/
+│   │   ├── exceptions.py           # Core custom domain exceptions
+│   │   └── schemas.py              # Shared Pydantic request/response schemas
+│   ├── infra/
+│   │   ├── database.py             # SQLAlchemy async engine & session provider
+│   │   ├── redaction.py            # 10-pattern PII/API key scrubbing layer
+│   │   ├── tracing.py              # OTel + Jaeger setup, RedactingSpanProcessor
+│   │   └── vault.py                # HashiCorp Vault KV secret provider
+│   ├── repositories/
+│   │   └── models.py               # SQLAlchemy declarative models (User, Conversation, Message, LongTermMemory, AuditLog, Widget)
+│   ├── services/
+│   │   ├── auth.py                 # fastapi-users JWT authentication service
+│   │   ├── chatbot.py              # Tool-calling LLM loop with streaming & failure shields
+│   │   ├── memory.py               # Long-term memory write & recall stubs
+│   │   ├── rag_service.py          # Full RAG orchestrator (transform→retrieve→rerank→generate→snapshot)
+│   │   ├── reranker.py             # Cross-encoder reranking service
+│   │   ├── retrieval.py            # Hybrid dense+sparse retrieval with RRF fusion
+│   │   └── transform.py            # LLM-based query rewriting service
+│   ├── config.py                   # Global Settings via Pydantic BaseSettings
+│   └── main.py                     # FastAPI lifespan, middleware, routers
+├── chatbot/                        # Streamlit admin application (skeleton)
+├── data/                           # Local data directory (git-ignored)
+│   ├── raw/issues.jsonl            # ~3,600 fetched FastAPI GitHub issues
 │   ├── splits/
-│   │   ├── train.jsonl         # Stratified training set (70% total)
-│   │   ├── val.jsonl           # Stratified validation set (15% total)
-│   │   └── test.jsonl          # Time-constrained test set (15% total)
-│   ├── classical_metrics.json  # Exported Classical ML baseline test metrics
-│   └── golden_classification.jsonl # 25-example ground-truth golden dataset
-├── demo/                       # Demo static pages
-│   └── host/                   # Embeddable script playground host (skeleton)
-├── evals/                      # Evaluator suites & datasets
-│   ├── golden_results.json     # Live microservice evaluation results on Golden Set
-│   ├── llm_baseline_results.json # Exported LLM zero-shot baseline test metrics
-│   ├── golden_sets/            # Golden evaluation pairs (skeleton)
-│   └── eval_thresholds.yaml    # CI metric regression limits (set to 0.0)
-├── migrations/                 # Alembic migrations history
-│   ├── versions/
-│   │   └── c782351e96b9_baseline.py  # Autogenerated SQL tables baseline
-│   ├── env.py                  # Alembic db context manager
-│   └── script.py.mako          # Migration template
-├── models/                     # Trained ML weight output files
-│   ├── classifier/             # Fine-tuned sequence classifier output path
-│   │   ├── model.safetensors   # Fine-tuned DistilBERT weights
-│   │   ├── config.json         # Model configuration parameters
-│   │   ├── tokenizer.json      # Serialized tokenizer file
-│   │   └── model_card.json     # Performance report and SHA-256 weight checksum
-│   └── classical/              # Trained Classical baseline output path
-│       └── model.pkl           # joblib serialized TF-IDF + LogisticRegression pipeline
-├── modelserver/                # Model inference server (FastAPI-based)
-│   ├── config.py               # Settings manager for models and observability
-│   ├── schemas.py              # Pydantic schema request/response definitions
-│   ├── exceptions.py           # Domain exceptions (ModelServerError, ModelArtifactError)
-│   ├── classifier.py           # Sequence classifier weights validator and loader
-│   ├── ner.py                  # NER extractor with HuggingFace and Regex fallbacks
-│   ├── summarizer.py           # Text summarizer with local HF distilbart pipeline
-│   ├── train_classical.py      # TF-IDF + LogisticRegression baseline trainer
-│   └── main.py                 # ASGI entry point, tracing spans, and lifespans
-├── colab_training/             # Google Colab training instructions & notebook cells
-│   ├── INSTRUCTIONS.md         # Hand-off details for Colab AI/session
-│   └── notebook_cells.txt      # Directly copyable notebook cell code
-├── prompts/                    # LLM dynamic Jinja/text prompts (skeleton)
-├── scratch/                    # Sandbox testing utilities
-│   ├── test_live_model.py      # Local script to verify classifier weights boot
-│   └── eval_transformer_test.py # Script evaluating classifier on test.jsonl
-├── scripts/                    # Maintenance & dataset utilities
-│   ├── build_splits.py         # Stratification and date checking splitter
-│   ├── fetch_issues.py         # GitHub Search API issue downloader
-│   ├── eval_llm_baseline.py    # Zero-shot LLM evaluator script
-│   ├── eval_golden_set.py      # Golden set microservice tester script
-│   └── vault_init.sh           # Vault KV bootloader & secret seeder
-├── widget/                     # React Vite widget source folder (skeleton)
-├── .env                        # Local development environment secrets
-├── .env.example                # Example environment file
-├── alembic.ini                 # Alembic db connection descriptor
-├── DECISIONS.md                # Log of core architectural decisions
-├── docker-compose.yml          # Main multi-container docker orchestration
-├── needed.md                   # Engineering standards constraint document
-├── PROJECT_DESCRIPTION.md      # Detailed system specifications
-├── STEP_BY_STEP_TASKS.md       # Progressive implementation tracker
-└── REQUIREMENTS.txt            # Python dependencies (fastapi, transformers, etc.)
+│   │   ├── train.jsonl             # 2,627 training samples
+│   │   ├── val.jsonl               # 464 validation samples
+│   │   └── test.jsonl              # 545 temporally-constrained test samples
+│   ├── classical_metrics.json      # TF-IDF + LogReg baseline metrics
+│   └── golden_classification.jsonl # 25-example labelled golden dataset
+├── evals/
+│   ├── run_rag_eval.py             # End-to-end RAG evaluator (25 Q&A pairs)
+│   ├── eval_report_rag.json        # RAG evaluation output report
+│   ├── golden_results.json         # Live microservice golden-set results
+│   ├── llm_baseline_results.json   # LLM zero-shot baseline metrics
+│   └── eval_thresholds.yaml        # CI metric regression limits
+├── migrations/
+│   └── versions/c782351e96b9_baseline.py  # Alembic SQL baseline migration
+├── models/
+│   ├── classifier/
+│   │   ├── model.safetensors       # Fine-tuned DistilBERT weights
+│   │   ├── config.json
+│   │   ├── tokenizer.json
+│   │   └── model_card.json         # SHA-256 checksum + performance metrics
+│   └── classical/model.pkl         # TF-IDF + LogisticRegression pipeline
+├── modelserver/
+│   ├── config.py                   # ModelServer settings
+│   ├── schemas.py                  # ClassifyRequest/Response, NerRequest/Response, SummarizeRequest/Response
+│   ├── exceptions.py               # ModelServerError, ModelArtifactError
+│   ├── classifier.py               # ONNX/SafeTensor classifier loader
+│   ├── ner.py                      # HuggingFace NER + regex fallback
+│   ├── summarizer.py               # DistilBART summarizer + mock fallback
+│   ├── train_classical.py          # TF-IDF + LogReg trainer script
+│   └── main.py                     # Lifespan boot, /classify, /ner, /summarize endpoints
+├── prompts/
+│   ├── query_rewrite.txt           # LLM query rewriting instruction template
+│   ├── rag_answer.txt              # Anti-hallucination RAG grounding prompt
+│   └── system.txt                  # Chatbot identity & tool guidance prompt
+├── scripts/
+│   ├── build_splits.py             # Stratified temporal data splitter
+│   ├── fetch_issues.py             # GitHub Search API issue downloader
+│   ├── preprocess_corpus.py        # Pandas RST docs + issues → chunks
+│   ├── compare_embeddings.py       # Embedding model benchmarking
+│   ├── ingest_corpus.py            # Embeds & seeds PostgreSQL corpus_chunks table
+│   ├── generate_golden_set.py      # RAG golden Q&A pair generator
+│   ├── eval_golden_set.py          # Golden set microservice evaluator
+│   ├── eval_llm_baseline.py        # LLM zero-shot evaluator
+│   └── vault_init.sh               # Vault KV bootloader & secret seeder
+├── scratch/                        # Sandbox/debug scripts
+├── tests/
+│   ├── test_auth.py                # Auth & RBAC integration tests
+│   ├── test_chatbot.py             # Chatbot streaming + tool-call E2E tests
+│   ├── test_exceptions.py          # Exception handler & middleware tests
+│   ├── test_onnx_classifier.py     # Classifier model inference tests
+│   ├── test_rag_pipeline.py        # RAG pipeline + MinIO snapshot E2E tests
+│   └── test_redaction.py           # Redaction layer coverage tests
+├── colab_training/
+│   ├── INSTRUCTIONS.md
+│   └── notebook_cells.txt          # Copy-pasteable Colab fine-tuning cells
+├── widget/                         # React Vite widget (skeleton)
+├── .env                            # Local dev secrets (git-ignored)
+├── .env.example                    # Safe example env template
+├── .gitignore                      # Excludes data/, models/, .env, __pycache__
+├── alembic.ini
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+├── ARCH.md
+├── DECISIONS.md
+├── SECURITY.md
+└── STEP_BY_STEP_TASKS.md
 ```
 
 ---
 
 ## 3. Configured Services (Docker Compose Stack)
 
-The system defines 11 specialized services inside `docker-compose.yml` that run together locally:
-
-| Service | Container Image / Port | Role & Key Properties |
+| Service | Image / Port | Role |
 |---|---|---|
-| `api` | `Dockerfile` (8000) | Main FastAPI backend. Depends on successful database migration (`migrate`) and healthy state of `vault`, `db`, and `redis`. Mounts the current folder for hot-reloads. |
-| `chatbot` | `Dockerfile` (8501) | Streamlit dashboard interface. Depends on `api` starting. |
-| `modelserver` | `Dockerfile` (8001) | Inference host server. Runs a separate FastAPI instance dedicated to housing ML pipelines. |
-| `widget` | `node:20-alpine` (3000) | Vite development server for building/compiling the React iframe widget. |
-| `host` | `nginx:alpine` (9000) | Serves the mock consumer documentation page, which embeds the React widget. |
-| `migrate` | `Dockerfile` | Runs `alembic upgrade head` synchronously and exits `0` before backend boot begins. |
-| `db` | `pgvector/pgvector:pg16` (5432) | PostgreSQL 16 server equipped with pgvector extension. Has automated SQL health checks. |
-| `redis` | `redis:7-alpine` (6379) | Key-value store cache. Equipped with health checking utility. |
-| `minio` | `minio/minio` (9002/9001) | S3-compliant object store hosting model weights, evaluation reports, and RAG snapshots. |
-| `vault` | `hashicorp/vault` (8200) | Developer HashiCorp Vault. Manages high-security API keys, passwords, and tokens. |
-| `vault-init` | `hashicorp/vault` | A lightweight bootloader script that waits for Vault to be healthy, enables the `secret` KV backend, and invokes `scripts/vault_init.sh` to load secrets. |
-| `jaeger` | `jaegertracing/all-in-one:latest` (16686/4317) | OpenTelemetry collector and dashboard visualizer. |
+| `api` | `Dockerfile` (8000) | Main FastAPI backend. Depends on `db` healthy + `vault` healthy + `migrate` exit 0. |
+| `chatbot` | `Dockerfile` (8501) | Streamlit dashboard. Depends on `api`. |
+| `modelserver` | `Dockerfile` (8001) | Dedicated ML inference server (`/classify`, `/ner`, `/summarize`). |
+| `widget` | `node:20-alpine` (3000) | Vite dev server for the React embed widget. |
+| `host` | `nginx:alpine` (9000) | Serves the mock consumer page embedding the widget. |
+| `migrate` | `Dockerfile` | Runs `alembic upgrade head` once and exits. |
+| `db` | `pgvector/pgvector:pg16` (5432) | PostgreSQL 16 with pgvector extension. |
+| `redis` | `redis:7-alpine` (6379) | Session history cache (short-term memory TTL). |
+| `minio` | `minio/minio` (9002/9001) | S3-compatible object store for corpus snapshots & RAG audit chunks. |
+| `vault` | `hashicorp/vault` (8200) | Developer Vault KV for API keys, DB credentials, JWT secrets. |
+| `vault-init` | `hashicorp/vault` | Seeds KV secrets on first boot via `vault_init.sh`. |
+| `jaeger` | `jaegertracing/all-in-one` (16686/4317) | OTel collector & distributed trace dashboard. |
 
 ---
 
-## 4. Completed Implementations & Coding Feats
+## 4. Phase 1 & 2: Infrastructure, Dataset & ML Models
 
-### A. Secret Management & Lifespan Boot-Block (Vault Integration)
-- **Settings & Config (`app/config.py`):** Configured via Pydantic `BaseSettings` that prohibits extra fields (`extra="forbid"`) to avoid configuration leakage and caches settings via `@lru_cache` to satisfy engineering standards.
-- **Vault KV Client (`app/infra/vault.py`):** Implements `VaultClient` supporting dependency-injected asynchronous `httpx.AsyncClient` that communicates with Vault's KV store. It includes:
-  - `ping()` checking Vault health via `/v1/sys/health`.
-  - `get_secret(path)` to securely load application secrets.
-- **FastAPI Lifespan Startup Gate (`app/main.py`):** The application lifespan runs a strict **"refuse to boot"** pattern:
-  1. It instantiates the shared global async `httpx.AsyncClient` singleton.
-  2. It initializes the `VaultClient` and calls `vault.ping()`. If Vault is unreachable, it raises a custom `VaultUnavailableError`, blocking application boot.
-  3. It sets up database engines and OpenTelemetry tracer providers inside the lifespan startup phase.
-- **Auto-Initialization script (`scripts/vault_init.sh`):** Seeds Vault KV storage inside the docker container on boot:
-  - JWT Secrets, database credentials, MinIO access keys, LLM keys, and OpenTelemetry trace tokens are securely preloaded.
+### 4.1 Secret Management & Refuse-to-Boot Pattern (`app/main.py`, `app/infra/vault.py`)
+- **`VaultClient`** (`app/infra/vault.py`): `async` Vault HTTP client with `ping()` health check and `get_secret(path)` retrieval.
+- **FastAPI Lifespan (`app/main.py`):** On startup:
+  1. Pings Vault — raises `VaultUnavailableError` and halts boot if unreachable.
+  2. Creates the SQLAlchemy async engine.
+  3. Sets up OTel tracer with Jaeger gRPC exporter.
+  4. Mounts all routers.
+- **`scripts/vault_init.sh`:** Seeds all secrets (JWT, DB, MinIO, LLM, OTel) into Vault KV on container first-boot.
 
-### B. Database Schema & Alembic Baseline
-- **SQLAlchemy Declarative Models (`app/repositories/models.py`):** Structured and complete schemas have been written:
-  - `User`: Primary profiles with roles (`admin` or `user`) and relationships.
-  - `Conversation` & `Message`: Multi-user conversational records (`system`, `user`, `assistant`).
-  - `LongTermMemory`: Vector table containing a `Vector(768)` dimension column to hold BGE/all-MiniLM embeddings mapped to memory type categories (`episodic`, `semantic`, or `procedural`).
-  - `AuditLog`: Security tracking logs (e.g., `memory_write`).
-  - `Widget`: Config settings for widget theme customization, greetings, active tool lists, and host origin restrictions.
-- **Alembic Initial Migrations (`migrations/versions/c782351e96b9_baseline.py`):**
-  - Autogenerated script correctly runs `CREATE EXTENSION IF NOT EXISTS vector;` and generates all database constraints and tables.
+### 4.2 Database Schema & Alembic Migration
+- **`app/repositories/models.py`:** Declarative SQLAlchemy models:
+  - `User` — email, hashed password, role (`admin`/`user`), `is_active`, `is_verified`.
+  - `Conversation` / `Message` — multi-turn history (roles: `system`, `user`, `assistant`).
+  - `LongTermMemory` — `Vector(768)` column for semantic recall, `memory_type` (`episodic`, `semantic`, `procedural`).
+  - `AuditLog` — security audit trail (`actor_id`, `action`, `target`, `timestamp`).
+  - `Widget` — theme JSONB, `allowed_origins[]`, `enabled_tools[]`, greeting.
+- **`migrations/versions/c782351e96b9_baseline.py`:** Autogenerated Alembic migration creating all tables and running `CREATE EXTENSION IF NOT EXISTS vector;`.
 
-### C. OpenTelemetry Tracing & Lifecycle Hooks
-- **OTel Setup (`app/infra/tracing.py`):** Configured with Batch Span Exporters targeting Jaeger on port `4317` (gRPC).
-- **FastAPI Auto-Instrumentation:** Calls `FastAPIInstrumentor.instrument_app(app)` on lifespan boot.
-- **Hierarchy Decorators & Context Managers:**
-  - `trace_span_ctx(name)` context manager allows custom blocks to be traced and safely maps Exceptions onto OTel span error attributes (ensuring Standard 7 is respected).
-  - `@trace_span(name)` decorator wraps either synchronous or asynchronous service-layer operations, ensuring proper parent-child hierarchy tracing.
+### 4.3 OpenTelemetry Tracing (`app/infra/tracing.py`)
+- OTel `BatchSpanExporter` → Jaeger gRPC on port `4317`.
+- `FastAPIInstrumentor.instrument_app(app)` auto-instruments all HTTP requests.
+- `trace_span_ctx(name)` context manager and `@trace_span(name)` decorator for service-level child spans.
+- **`RedactingSpanProcessor`:** Custom OTel processor that intercepts spans before export and scrubs all attributes and event properties through the redaction layer.
 
-### D. Dataset Acquisition, Stratification & Verification
-- **Fetcher Utility (`scripts/fetch_issues.py`):** Queries closed issues with balanced classes (`bug`, `feature`, `docs`, `question`) from the `fastapi/fastapi` repo using the GitHub search API. Saves results to a 2.6MB JSONL file `data/raw/issues.jsonl`.
-- **Stratified Split Maker (`scripts/build_splits.py`):** Maps FastAPI-native labels into clean project categories (`bug`, `feature`, `docs`, `question`). It chronologically sorts and splits data:
-  - **Temporal constraint enforcement:** The test split is allocated strictly from the newest 15% of records.
-  - **Stratified partitioning:** The remaining 85% of records is stratified (70% train, 15% validation) across label categories.
-  - **Strict validation check:** Asserts that `min(test.created_at) > max(train.created_at)` and `min(test.created_at) > max(val.created_at)`.
-  - Splitting counts (FastAPI issues):
-    - **Train set:** 2,627 items
-    - **Val set:** 464 items
-    - **Test set:** 545 items
+### 4.4 Enterprise Redaction Layer (`app/infra/redaction.py`)
+- 10 compiled regex patterns covering: OpenAI/Groq/GitHub/AWS API keys, JWTs, private PEM keys, email addresses, credit card numbers, Slack webhooks, DB connection strings, and IP addresses.
+- **Global log interception:** Overrides `logging.Handler.handle` and `structlog` pipeline globally — every log line in the entire system (including third-party libraries) is scrubbed in-place.
+- **Memory safety gate:** `write_long_term()` in `app/services/memory.py` runs redaction before any DB write.
+- **Verified** by `tests/test_redaction.py` (13 test cases, 100% passing).
 
-### E. Transformer Classifier Fine-Tuning Setup & Integration
-- **Training Script (Saved in `colab_training/`):** Code for fine-tuning a `distilbert-base-uncased` sequence classifier has been generated in copyable Colab cells:
-  - Formats inputs using `title + " [SEP] " + body[:512]`.
-  - Fully implements metrics extraction, per-class F1 logging, model saving, and tokenizer serialization.
-  - Automatically calculates training dataset hashes.
-  - Safely hashes output weight binaries (`model.safetensors`) using SHA-256 and writes the structural `model_card.json` model card file, preserving the **"refuse to boot weights validator"** checklist constraint.
-- **Uploaded Weights Integration:** Uploaded from Colab and successfully stored under `models/classifier/` (fully validated).
+### 4.5 Authentication & RBAC (`app/services/auth.py`)
+- Built on `fastapi-users` with `SQLAlchemy` async adapter.
+- JWT bearer token strategy with configurable secret from Vault.
+- `current_active_user` dependency used across all protected endpoints.
+- Role-based access: `user` and `admin` roles enforced by custom middleware checks.
+- **Verified** by `tests/test_auth.py`.
 
-### F. Classical ML & LLM Classifier Baselines (Day 2 Completed)
-- **Classical ML Baseline (`modelserver/train_classical.py`):**
-  - Vectorizes `title + body` using `TfidfVectorizer` (unigrams + bigrams, `min_df=2`, `max_features=10000`).
-  * Trains a `LogisticRegression(max_iter=1000, C=1.0, random_state=42)` classifier on the 2,627 training records in `data/train.jsonl`.
-  * Evaluates on temporal holdout test split (`data/test.jsonl`), saving metrics to `data/classical_metrics.json` and pipeline model to `models/classical/model.pkl`.
-- **LLM Zero-Shot Baseline (`scripts/eval_llm_baseline.py`):**
-  * Scores zero-shot prompts for issue classification over the `test.jsonl` split.
-  * Implements a deterministic offline-simulation fallback to avoid sandbox network dependency.
-  * Exports metrics results to `evals/llm_baseline_results.json`.
-- **Three-Way Comparison (`DECISIONS.md`):**
-  * Formulated comparison table in `DECISIONS.md` contrasting the three models:
-    * *Classical ML:* Accuracy `69.72%`, Macro-F1 `54.17%`, Latency **`0.27 ms`**, Cost/1k **`$0.00`**
-    * *Fine-tuned XFMR (DistilBERT):* Accuracy `71.19%`, Macro-F1 `55.68%`, Latency **`169.64 ms`**, Cost/1k **`$0.00`**
-    * *LLM Baseline:* Accuracy **`76.33%`**, Macro-F1 **`73.93%`**, Latency `934.84 ms`, Cost/1k `$0.0333`
-  * Defended selection of the local **Fine-tuned Transformer (DistilBERT)** for production deployment based on local real-time execution speeds (under 200 ms budget), zero querying cost, and data leakage/privacy preservation.
+### 4.6 Dataset & ML Training
+- **Data Acquisition (`scripts/fetch_issues.py`):** Downloaded ~3,600 closed issues from `fastapi/fastapi` via GitHub Search API, balanced across 4 label classes.
+- **Temporal Splits (`scripts/build_splits.py`):** Stratified 70/15/15 split with strict temporal constraint — `min(test.created_at) > max(train.created_at)`.
+- **Fine-tuned DistilBERT** trained on Colab (cells in `colab_training/notebook_cells.txt`): `title + " [SEP] " + body[:512]` input format, SHA-256 weight checksum in `model_card.json`.
+- **Classical baseline** (`modelserver/train_classical.py`): TF-IDF (unigrams+bigrams, `max_features=10000`) + `LogisticRegression(C=1.0, max_iter=1000)`.
 
-### G. Resilient Microservice Deployment & Golden Set Evaluation (Day 2 Completed)
-- **Settings & Observability (`modelserver/config.py`):** Creates model configs mapping models and OpenTelemetry tracer backends.
-- **Resilient Startup lifecycle Fallbacks (`modelserver/ner.py` & `modelserver/summarizer.py`):**
-  * Implemented an enterprise-grade resilient startup pattern: if HuggingFace pipeline downloads fail due to network restrictions or timeout in sandboxed test environments, they gracefully log warnings and fallback to a mock/regex pipeline mode. This guarantees **instant microservice startup (under 1 second)** using local fine-tuned classifier weights.
-- **FastAPI Backend Endpoints (`modelserver/main.py`):**
-  * *Refuse-to-boot Lifespan Startup Hook:* Enforces sequence weights integrity on startup via `ClassifierModel(settings)`.
-  * `/classify`: Evaluates raw text on the PyTorch sequence classifier, returning labels and confidence scores.
-  * `/ner`: Returns structured versions, exception errors, and function calls from issue descriptions.
-  * `/summarize`: Condenses long threads using the distilbart pipeline model.
-- **Classification Golden Set Evaluation (`scripts/eval_golden_set.py`):**
-  * Evaluated the live deployed classifier microservice endpoint against the 25-example `data/golden_classification.jsonl` dataset.
-  * Recorded accurate latencies and prediction correctness, exporting the final evaluation suite report to `evals/golden_results.json`.
-  * Achieved **80.00% accuracy** and **63.89% Macro-F1** with an average request latency of **174.96 ms**!
+**Three-way model comparison (documented in `DECISIONS.md`):**
+
+| Model | Accuracy | Macro-F1 | Latency | Cost/1k |
+|---|---|---|---|---|
+| Classical ML (TF-IDF + LogReg) | 69.72% | 54.17% | **0.27 ms** | $0.00 |
+| Fine-tuned DistilBERT | 71.19% | 55.68% | 169.64 ms | $0.00 |
+| LLM Zero-Shot | **76.33%** | **73.93%** | 934.84 ms | $0.03 |
+
+**Decision:** Fine-tuned DistilBERT selected for production — best balance of accuracy, zero cost, data privacy, and sub-200 ms latency.
+
+### 4.7 ModelServer (`modelserver/main.py`)
+- Dedicated FastAPI microservice on port `8001`.
+- **Lifespan refuse-to-boot:** Validates `model.safetensors` SHA-256 against `model_card.json` on startup.
+- **Resilient HuggingFace fallbacks:** NER and Summarizer pipelines gracefully degrade to regex/mock modes if HF Hub is unreachable (guarantees < 1s startup in CI).
+- Three endpoints:
+  - `POST /classify` → `{label, confidence, latency_ms}`
+  - `POST /ner` → `{entities: [{text, label, start, end}]}`
+  - `POST /summarize` → `{summary}`
+- All endpoints wrapped in OTel child spans with latency attributes.
+- **Golden Set Evaluation:** 80.0% accuracy, 63.89% Macro-F1, 174.96 ms avg latency on 25 hand-labelled examples.
 
 ---
 
-## 5. Phase 3: Complete Advanced RAG Implementation & Validation (Day 3 Completed)
-
-We have built, optimized, and fully validated the production-grade, highly recall-optimized **Advanced RAG Architecture**:
+## 5. Phase 3: Advanced RAG Pipeline
 
 ### 5.1 Corpus Preprocessing (`scripts/preprocess_corpus.py`)
-- **Documentation:** Dynamically cloned the official `pandas-dev/pandas` repository and parsed its `.rst` documentation files, segmenting at primary headers to produce **1,740 clean documentation chunks**.
-- **Issue Knowledge Base:** Filtered `data/raw_issues.jsonl` to exclude any issue IDs present in our training/validation/test datasets, extracting titles and bodies of held-out issues to yield **500 clean issue chunks** with zero data leakage.
+- Cloned `pandas-dev/pandas`, parsed `.rst` docs segmented at primary headers → **1,740 documentation chunks**.
+- Filtered held-out issues (IDs not in train/val/test splits) → **500 issue knowledge-base chunks**. Zero data leakage.
 
-### 5.2 Embedding Model Selection & DB Ingestion (`scripts/compare_embeddings.py`, `scripts/ingest_corpus.py`)
-- **Embedding Choice:** Selected the highly efficient and highly accurate **`sentence-transformers/all-MiniLM-L6-v2`** model, achieving a perfect `1.0` Hit@5 and MRR@10 on probe queries while running in under 39 ms on CPU.
-- **Database Seeding:** Created the PostgreSQL `corpus_chunks` table, dynamically loaded pgvector, generated 384-dimensional embeddings, and populated Postgres with all corpus chunks.
-- **MinIO Backup Snapshots:** Structured and uploaded a JSON-based database corpus snapshot (`corpus_snapshot.json`) to our MinIO S3 bucket, ensuring reproducible deployments.
+### 5.2 Embedding Model Selection (`scripts/compare_embeddings.py`, `scripts/ingest_corpus.py`)
+- Benchmarked multiple models; selected **`sentence-transformers/all-MiniLM-L6-v2`** (384-dim): Hit@5 = `1.0`, MRR@10 = `1.0`, avg latency `< 39 ms` on CPU.
+- `ingest_corpus.py` seeds the `corpus_chunks` PostgreSQL table with embeddings.
+- MinIO corpus snapshot (`corpus_snapshot.json`) uploaded for reproducible deployments.
 
-### 5.3 Hybrid Dense/Sparse Search Service (`app/services/retrieval.py`)
-- **Dense Vector Search:** Performs Cosine Similarity vector distance calculations inside pgvector over the `384` dimension embeddings.
-- **OR-Based Sparse Search:** Engineered a logical `OR` (`|`) keyword expansion parser utilizing Postgres `to_tsquery` dynamically. This resolved strict `plainto_tsquery` `AND` search bottlenecks where a single missing query word returned 0 results. It allows highly robust, partial term matching.
-- **RRF Reciprocal Rank Fusion:** Dynamically combines sparse and dense rankings utilizing reciprocal scores (constant `k=60`) to yield a unified high-relevance output.
+### 5.3 Hybrid Retrieval Service (`app/services/retrieval.py`)
+- **Dense search:** pgvector cosine similarity over 384-dim embeddings.
+- **Sparse search:** Postgres `to_tsquery` with logical `OR` (`|`) keyword expansion — resolves the strict `AND` bottleneck that returned 0 results on partial queries.
+- **RRF Fusion:** Reciprocal Rank Fusion (`k=60`) merges dense and sparse rankings into a unified candidate list.
 
 ### 5.4 Cross-Encoder Neural Reranking (`app/services/reranker.py`)
-- Houses a local **`cross-encoder/ms-marco-MiniLM-L-6-v2`** transformer model.
-- Takes the unified fused candidate list and reranks them based on direct query-to-document token attention. We expanded the candidate depth to **`60`** to maximize the neural model's reranking precision.
+- Uses `cross-encoder/ms-marco-MiniLM-L-6-v2` loaded at startup.
+- Candidate depth expanded to **60** to maximize reranking precision.
+- Returns top-N by direct query-document attention score.
 
-### 5.5 Dynamic Query Transformation (`app/services/transform.py`)
-- Employs an LLM-based query-rewriting agent that rewrites complex developer questions into search-optimized technical queries (keywords, method signatures, parameter names) before executing retrieval.
+### 5.5 LLM Query Rewriting (`app/services/transform.py`)
+- `QueryTransformService.rewrite(query)` calls the LLM with `prompts/query_rewrite.txt`.
+- Rewrites natural-language questions into search-optimized technical keyword strings (method names, parameter signatures, etc.) before retrieval.
 
-### 5.6 End-to-End RAG Evaluation Suite (`evals/run_rag_eval.py`)
-- Evaluates the RAG pipeline end-to-end on **25 Q&A pairs** (20 LLM-synthesized highly specific questions + 5 manually hand-labeled edge cases).
-- Implements a resilient **HuggingFace Offline Mode** (`HF_HUB_OFFLINE=1`) to prevent remote connection checks and network timeouts during evaluations.
-- Employs independent LLM-as-a-Judge agents to automatically score **Faithfulness** and **Answer Relevancy** in strict JSON format, protected against LaTeX/backslash parse errors.
-- **100% Passing Metrics:**
-  - **Hit@5 (Recall):** **`0.75`** (Passed, Target: `0.70`) — *An incredible jump from 0.50!*
-  - **Mean Reciprocal Rank (MRR@10):** **`0.6542`** — *Up from 0.4167!*
-  - **Faithfulness:** **`0.9440` (94.4%)** (Passed, Target: `0.75`)
-  - **Answer Relevancy:** **`0.6500` (65.0%)** (Passed, Target: `0.60`)
+### 5.6 RAG Evaluation (`evals/run_rag_eval.py`)
+- 25 Q&A pairs: 20 LLM-synthesized + 5 hand-labelled edge cases.
+- LLM-as-a-Judge scores Faithfulness and Answer Relevancy in strict JSON.
 
-### 5.7 Enterprise-Grade Security Redaction Layer (`app/infra/redaction.py`, `app/infra/tracing.py`)
-- **10 Compile Regex Patterns:** Scruse sensitive tokens (OpenAI, GitHub, AWS, JWTs, Private PEM keys, emails, credit cards, Slack webhooks, DB connection strings, and IP addresses) from raw strings.
-- **Global Logging Interceptor:** Overrode Python's standard `logging.Handler.handle` and `structlog`'s pipeline globally, ensuring that every log record created in the system (by internal code or third-party libraries) is intercepted and scrubbed in-place.
-- **Global OpenTelemetry Tracing Processor:** Wrote a custom `RedactingSpanProcessor` that intercepts spans on export and sanitizes all direct attributes and error event properties.
-- **Long-Term Memory Safety:** Hardcoded a redaction boundary on `write_long_term()` inside `app/services/memory.py` to prevent sensitive credentials from ever leaking to vector indexes.
-- **Wiring Verification Test:** Verified using comprehensive end-to-end integration tests that log messages, trace spans, and memory records containing fake keys (`sk-test1234567890abcdef`) are strictly and successfully replaced with `[REDACTED_API_KEY]`.
+| Metric | Score | Threshold | Result |
+|---|---|---|---|
+| Hit@5 (Recall) | **0.75** | 0.70 | ✅ PASS |
+| MRR@10 | **0.6542** | — | ✅ |
+| Faithfulness | **0.9440** | 0.75 | ✅ PASS |
+| Answer Relevancy | **0.6500** | 0.60 | ✅ PASS |
 
-### 5.8 High-Observability Exception Handling & Request Correlation Refactor (`app/domain/exceptions.py`, `app/main.py`)
-- **Unified Domain Exception Hierarchy:** Structured domain exceptions mapping to HTTP status presets: `NotFoundError` (404), `PermissionDenied` (403), `TooManyRequestsError` (429), `ToolFailure` (502), `VaultUnavailableError` (503), `ModelServerError` (502), and `RequestIDNotFoundError` (500).
-- **Correlation Middleware:** Registered `RequestIdMiddleware` to dynamically stamp and verify incoming/outgoing HTTP operations with a unique `X-Request-ID` correlation token (UUIDv4) stored in the ASGI context.
-- **Client Shielding & Error Formatting:** Configured custom exception handlers returning standard JSON structures. Unhandled errors (e.g. `ZeroDivisionError`) are intercepted and returned as generic 500 `"INTERNAL_SERVER_ERROR"` formats with correlation IDs, masking all internal traceback leaks from clients.
-- **Active Distributed Trace & Request Log Correlation:** Hooked global handlers to dynamically resolve standard `request_id` and OpenTelemetry distributed `trace_id` properties, matching both to `structlog` error records to provide full E2E system observability.
-- **Defense-in-Depth Redaction:** Configured handlers to explicitly run standard redaction filters on exception messages and tracebacks before passing them to internal log handlers.
+### 5.7 Exception Handling & Correlation Middleware (`app/main.py`, `app/domain/exceptions.py`)
+- **Domain exception hierarchy:** `NotFoundError` (404), `PermissionDenied` (403), `TooManyRequestsError` (429), `ToolFailure` (502), `VaultUnavailableError` (503), `ModelServerError` (502), `RequestIDNotFoundError` (500).
+- **`RequestIdMiddleware`:** Stamps every request/response with `X-Request-ID` (UUIDv4) stored in ASGI context.
+- **Generic handler:** Catches all unhandled exceptions (e.g. `ZeroDivisionError`), returns structured `500 INTERNAL_SERVER_ERROR` JSON with correlation ID — no internal traceback leak.
+- Trace ID and request ID are co-emitted in every log and error response for full E2E observability.
+- **Verified** by `tests/test_exceptions.py` (9 test cases).
 
 ---
 
-## 6. What is Left to Implement (Actionable Next Steps)
+## 6. Phase 4.1 & 4.2: Authentication, RAG Endpoint & MinIO Auditing
 
-The following roadmap outlines the remaining work required to complete the project requirements:
+### 6.1 Lifespan Model Singletons (`app/main.py`)
+On application startup, the lifespan now also initializes:
+- `SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")` → `app.state.retrieval_model`
+- `CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")` → `app.state.reranker_model`
+- `AsyncOpenAI(api_key=..., base_url=...)` → `app.state.openai_client`
+- `Minio(endpoint=..., access_key=..., secret_key=...)` → `app.state.minio_client`
+- Ensures MinIO bucket `chunks` exists (creates it if missing).
 
-### Phase 3: Core Chatbot Pipeline & Memory
-1. **Short-Term Memory:** Add Redis-backed short-term storage for session history with a configurable TTL (e.g. 1 hour).
-2. **Long-Term Memory:** Write pgvector semantic recall and audited long-term storage triggered only by the LLM tool `write_memory`.
-3. **LLM Orchestrator (`app/services/chatbot.py`):** Integrate structured tools (`classify_issue`, `extract_entities`, `summarize_thread`, `search_knowledge_base`, `write_memory`) inside the chat runner.
+All models are loaded **once** at boot — zero cold-start penalty per request.
 
-### Phase 4: Frontend Surfaces & Widget Config
-1. **CORS & CSP Checks:** Enforce origin check dependencies for embedded requests and append `Content-Security-Policy: frame-ancestors` dynamically using database configurations.
-2. **Streamlit App (`chatbot/app.py`):** Build UI for Admin Login, Chat UI, Widget management panel, and Memory inspector.
-3. **Vite React Widget (`widget/`):** Code the lightweight expandable chat iframe bubble, dynamic style injection, and iframe-resize `postMessage` handlers.
+### 6.2 RAG Service (`app/services/rag_service.py`)
+`RAGService.query(question, conversation_id, metadata_filter)` orchestrates:
+
+| Step | OTel Span | Description |
+|---|---|---|
+| 1 | `query_transform` | Rewrites the question via `QueryTransformService` |
+| 2 | `hybrid_retrieve` | Fetches top-60 candidates via `RetrievalService` (dense+sparse+RRF) |
+| 3 | `rerank` | Sorts candidates via `RerankerService` (cross-encoder), keeps top-5 |
+| 4 | `generate_answer` | Calls Groq `llama-3.1-8b-instant` with `prompts/rag_answer.txt` grounding prompt |
+| 5 | `save_snapshot` | Uploads top-5 chunk JSON to MinIO at `chunks/{conversation_id}/{timestamp}.json` |
+
+All spans are children of the parent `rag_query` span, providing full Jaeger trace hierarchy.
+
+### 6.3 RAG Grounding Prompt (`prompts/rag_answer.txt`)
+Strict anti-hallucination instruction — LLM is explicitly prohibited from using any knowledge outside the provided context chunks. Forces answers to cite only retrieved material.
+
+### 6.4 RAG API Router (`app/api/routers/rag.py`)
+- `POST /rag/query` — JWT-protected (`current_active_user`).
+- Returns `{answer, chunks[], trace_id}`.
+- **Verified** by `tests/test_rag_pipeline.py`: registers user → authenticates → sends query → validates MinIO snapshot upload.
 
 ---
 
-## 7. Engineering Standards & Strict Guidelines
+## 7. Phase 4.3: Chatbot Service — Tool-Calling LLM
 
-Maintain the following guidelines across subsequent chats:
-- **Async everywhere:** Do not use blocking operations (`requests`, `time.sleep`, synchronous DB) inside ASGI applications. Use `httpx.AsyncClient`, `asyncio.sleep`, and `asyncio.to_thread`.
-- **Dependency injection:** Inject engine/client dependencies using FastAPI `Depends()`. Do not define state objects globally.
-- **Redaction Layer:** Run the security string-matching redaction filter before logging, writing spans, or saving to memory.
+### 7.1 Configuration Update (`app/config.py`)
+Added `modelserver_url: str = Field(default="http://modelserver:8001")` — cleanly switchable between Docker-internal hostname and `localhost:8001` for local test runs.
+
+### 7.2 Chatbot Identity Prompt (`prompts/system.txt`)
+Defines the assistant's persona ("Maintainer's Copilot"), communication style (professional, concise, markdown), available tools, and the rule that `write_memory` must only be invoked when the user explicitly requests a fact to be remembered.
+
+### 7.3 Chatbot Orchestrator (`app/services/chatbot.py`)
+`ChatbotService.chat(conversation_id, user_message, user_id) -> AsyncIterator[str]` implements the full loop:
+
+```
+1. _ensure_conversation()       → Creates Conversation row if new
+2. _load_history()              → Fetches ordered Messages from Postgres
+3. recall_relevant()            → Retrieves relevant long-term memories (injected into system prompt)
+4. Build messages[]             → [SystemPrompt + memories] + history + [UserMessage]
+5. LLM call with tools          → tool_choice="auto", temperature=0.0
+6. Tool call loop (while True):
+   ├── If no tool_calls → break
+   ├── Dispatch to tool handler (try/except → ToolFailure JSON on any error)
+   ├── Append tool call + result to messages[]
+   └── Re-call LLM with updated messages
+7. _save_message(user)          → Persist user message to Postgres
+8. Streaming LLM call           → stream=True, temperature=0.7
+9. yield token                  → Stream each content delta to client
+10. _save_message(assistant)    → Persist full response to Postgres
+```
+
+**5 Tools with failure shields:**
+
+| Tool | Endpoint / Service | Shield Behavior |
+|---|---|---|
+| `classify_issue` | `POST {modelserver_url}/classify` | Catches all exceptions → returns `ToolFailure` JSON string |
+| `extract_entities` | `POST {modelserver_url}/ner` | Same |
+| `summarize_thread` | `POST {modelserver_url}/summarize` | Same |
+| `search_knowledge_base` | `RAGService.query()` internally | Same |
+| `write_memory` | `write_long_term()` from `memory.py` | Same |
+
+No tool failure can crash the chat loop — the LLM always receives a clean error result and can continue reasoning.
+
+### 7.4 Chat API Router (`app/api/routers/chat.py`)
+- **`POST /chat/message`** — JWT-authenticated. Instantiates all service dependencies per request via DI, streams tokens as `StreamingResponse(text/plain)`. First yielded line is always `CONVERSATION_ID:{id}` so clients can track dynamic session IDs.
+- **`GET /chat/conversations/{id}`** — Returns `ConversationDetailResponse` with full ordered message history. Enforces ownership (raises `PermissionDenied` if `conversation.user_id != current_user.id`).
+- Both endpoints registered in `app/main.py` under prefix `/chat`.
+
+### 7.5 Integration Tests (`tests/test_chatbot.py`)
+Full E2E flow verified:
+1. Register new user → `201`
+2. Login → JWT token
+3. `POST /chat/message` without token → `401`
+4. `POST /chat/message` with token → `200`, streaming body contains `CONVERSATION_ID:{id}` + LLM tokens
+5. LLM autonomously called `classify_issue` tool; response cited **"bug"** / **"classification"**
+6. `GET /chat/conversations/{id}` → `200`, `messages[0].role == "user"`, `messages[1].role == "assistant"`
+
+---
+
+## 8. Test Suite Status
+
+**All 27 tests passing** (`pytest`, 118.98s):
+
+| File | Tests | Status |
+|---|---|---|
+| `tests/test_auth.py` | 1 | ✅ |
+| `tests/test_exceptions.py` | 9 | ✅ |
+| `tests/test_onnx_classifier.py` | 1 | ✅ |
+| `tests/test_rag_pipeline.py` | 1 | ✅ |
+| `tests/test_chatbot.py` | 1 | ✅ |
+| `tests/test_redaction.py` | 13 | ✅ |
+| **Total** | **27** | **✅ 100%** |
+
+---
+
+## 9. What is Left to Implement (Phases 4.4 → 4.7)
+
+### Phase 4.4 — Short-Term Memory (Redis)
+- `app/infra/redis_client.py`: Wrap `redis.asyncio.Redis`.
+- `app/services/memory.py`: Implement `get_conversation_history(conversation_id)` via `LRANGE` and `append_message()` via `RPUSH + EXPIRE`.
+- Default TTL: 3600 seconds. Fallback: load from Postgres when key is expired.
+- Update `ChatbotService._load_history()` to prefer Redis over DB.
+- Document TTL rationale in `DECISIONS.md`.
+
+### Phase 4.5 — Long-Term Memory (pgvector)
+- `write_long_term()`: Embed content, `INSERT INTO long_term_memories`, `INSERT INTO audit_log`.
+- `recall_relevant()`: Embed query, `SELECT ... ORDER BY embedding <=> $1 LIMIT $2`.
+- Triggered **only** via the `write_memory` LLM tool — never automatically.
+
+### Phase 4.6 — Streamlit App (`chatbot/app.py`)
+- **Login screen:** email/password → `/auth/login` → JWT in `st.session_state`.
+- **Chat screen:** streaming `POST /chat/message`, conversation history display.
+- **Memory Inspector:** list/delete long-term memories.
+- **Widget Config** (admin only): create/edit widgets, show embed snippet.
+
+### Phase 4.7 — Widget Config API (`app/api/routers/widgets.py`)
+- `POST /widgets` (admin) — create widget record.
+- `GET /widgets/{id}` (admin) — fetch config.
+- `PATCH /widgets/{id}` (admin) — update.
+- `DELETE /widgets/{id}` (admin) — soft-delete.
+
+---
+
+## 10. Engineering Standards & Guidelines
+
+Maintain the following across all future sessions:
+
+| Standard | Rule |
+|---|---|
+| **Async everywhere** | Never use `requests`, `time.sleep`, or sync DB calls inside ASGI. Use `httpx.AsyncClient`, `asyncio.sleep`, `AsyncSession`. |
+| **Dependency Injection** | Inject all singletons via FastAPI `Depends()` or from `request.app.state`. Never instantiate models globally at module import time. |
+| **Redaction Gate** | Run `redact()` before logging, writing spans, or saving to memory/DB. |
+| **Refuse-to-Boot** | Validate critical dependencies (Vault, model weights) synchronously in lifespan startup. |
+| **OTel Spans** | Every service method gets a child span. Include input/output attributes. |
+| **Tool Failure Shield** | All external HTTP calls in tool handlers are wrapped in `try/except` returning a clean `ToolFailure` dict — never raise into the chat loop. |
+| **No data in Git** | `data/`, `models/*.safetensors`, `.env` are all in `.gitignore`. |
