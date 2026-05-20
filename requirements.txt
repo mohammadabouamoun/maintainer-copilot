@@ -17,8 +17,6 @@ fastapi-users[sqlalchemy]
 redis
 minio
 streamlit
-torch
+onnxruntime
 transformers
 scikit-learn
-accelerate
-evaluate

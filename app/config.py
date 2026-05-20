@@ -20,8 +20,11 @@ class Settings(BaseSettings):
 
     # LLM / Tracing Configuration
     llm_api_key: str = Field(default="your_llm_api_key")
+    llm_base_url: str = Field(default="https://api.groq.com/openai/v1")
+    llm_model: str = Field(default="llama-3.1-8b-instant")
     tracing_key: str = Field(default="your_tracing_api_key")
     tracing_backend_url: str = Field(default="http://jaeger:4317")  # OTLP gRPC endpoint
+    modelserver_url: str = Field(default="http://modelserver:8001")
 
     # App Secrets
     jwt_secret: str = Field(default="your_jwt_signing_secret")

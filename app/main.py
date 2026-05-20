@@ -3,10 +3,13 @@ import uuid
 import traceback
 import structlog
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from opentelemetry import trace
+from minio import Minio
+from openai import AsyncOpenAI
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 from app.config import get_settings
 from app.infra.vault import VaultClient
@@ -14,6 +17,8 @@ from app.infra.database import init_db_engine
 from app.infra.tracing import setup_tracing, trace_span_ctx, trace_span
 from app.infra.redaction import redact
 from app.domain.exceptions import AppError, RequestIDNotFoundError
+from app.domain.schemas import UserRead, UserCreate, UserUpdate
+from app.services.auth import fastapi_users, auth_backend, require_role
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,6 +50,36 @@ async def lifespan(app: FastAPI):
         db_engine = init_db_engine(settings.async_database_url)
         app.state.db_engine = db_engine
         span.set_attribute("database.status", "initialized")
+
+        # 5. Initialize RAG ML Models and API clients
+        logger.info("Loading SentenceTransformer and CrossEncoder models...")
+        retrieval_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        reranker_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        
+        app.state.retrieval_model = retrieval_model
+        app.state.reranker_model = reranker_model
+        span.set_attribute("ml_models.status", "loaded")
+
+        # 6. Initialize AsyncOpenAI client
+        openai_client = AsyncOpenAI(
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url
+        )
+        app.state.openai_client = openai_client
+
+        # 7. Initialize MinIO client
+        minio_client = Minio(
+            settings.minio_endpoint,
+            access_key=settings.minio_root_user,
+            secret_key=settings.minio_root_password,
+            secure=False
+        )
+        # Ensure chunks bucket exists
+        bucket_name = "chunks"
+        if not minio_client.bucket_exists(bucket_name):
+            minio_client.make_bucket(bucket_name)
+        app.state.minio_client = minio_client
+        span.set_attribute("minio.status", "initialized")
 
     yield
 
@@ -174,3 +209,45 @@ async def test_domain_error(error_type: str):
 async def test_unhandled_error():
     # Intentionally trigger unhandled division by zero to test shielding
     return 1 / 0
+
+# FastAPI-Users Auth & Router Registrations
+from app.api.routers.rag import router as rag_router
+from app.api.routers.chat import router as chat_router
+
+app.include_router(
+    rag_router,
+    prefix="/rag",
+    tags=["rag"]
+)
+
+app.include_router(
+    chat_router,
+    prefix="/chat",
+    tags=["chat"]
+)
+
+app.include_router(
+    fastapi_users.get_auth_router(auth_backend),
+    prefix="/auth",
+    tags=["auth"]
+)
+
+app.include_router(
+    fastapi_users.get_register_router(UserRead, UserCreate),
+    prefix="/auth",
+    tags=["auth"]
+)
+app.include_router(
+    fastapi_users.get_users_router(UserRead, UserUpdate),
+    prefix="/users",
+    tags=["users"]
+)
+
+# Protected endpoint for E2E role-check authorization verification
+@app.get("/admin/dashboard")
+async def admin_dashboard(admin_user=Depends(require_role("admin"))):
+    return {
+        "status": "success",
+        "message": f"Welcome to the admin dashboard, {admin_user.email}!",
+        "role": admin_user.role
+    }

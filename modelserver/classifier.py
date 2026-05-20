@@ -2,15 +2,21 @@ import os
 import json
 import hashlib
 import time
-import torch
+import numpy as np
+import onnxruntime as ort
 from typing import Dict, Any
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer
 import structlog
 
 from modelserver.config import ModelServerSettings, get_settings
 from modelserver.exceptions import ModelArtifactError
 
 logger = structlog.get_logger()
+
+def softmax(x: np.ndarray) -> np.ndarray:
+    """Computes softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
+    return e_x / e_x.sum(axis=-1, keepdims=True)
 
 class ClassifierModel:
     def __init__(self, settings: ModelServerSettings = None):
@@ -74,25 +80,29 @@ class ClassifierModel:
             logger.error("SHA-256 validation failed.", expected=expected_hash, actual=actual_hash)
             raise ModelArtifactError(f"weights hash mismatch. Expected {expected_hash}, got {actual_hash}")
 
-        logger.info("SHA-256 validation passed. Loading PyTorch model weights...", path=weights_path)
+        logger.info("SHA-256 validation passed. Loading ONNX model weights...")
         
         try:
-            # Load tokenizer and sequence classification model locally
-            # In a real environment, the model weights folder must have config.json and vocabulary files.
-            # We point AutoModel to load the directory containing the checkpoint.
+            # Load tokenizer locally
             model_dir = os.path.dirname(weights_path)
             self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
-            self.model = AutoModelForSequenceClassification.from_pretrained(model_dir)
-            self.model.eval() # Set to evaluation mode
-            logger.info("PyTorch Sequence Classifier loaded successfully.")
+            
+            # Load ONNX model using ONNX Runtime
+            onnx_path = os.path.join(model_dir, "model.onnx")
+            if not os.path.exists(onnx_path):
+                onnx_path = weights_path.replace(".safetensors", ".onnx")
+                
+            logger.info("Loading ONNX Inference Session...", path=onnx_path)
+            self.model = ort.InferenceSession(onnx_path)
+            logger.info("ONNX Sequence Classifier loaded successfully.")
         except Exception as e:
-            logger.critical("Failed to load HuggingFace/PyTorch weights.", error=str(e))
+            logger.critical("Failed to load HuggingFace/ONNX weights.", error=str(e))
             raise ModelArtifactError(f"Failed to load weights: {e}")
 
     def predict(self, text: str) -> Dict[str, Any]:
         """
         Performs issue classification.
-        Supports fallback mock inference for development and real PyTorch inference.
+        Supports fallback mock inference for development and real ONNX inference.
         """
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model has not been loaded. Call load_model() first.")
@@ -118,19 +128,25 @@ class ClassifierModel:
                 "confidence": confidence
             }
 
-        # Real PyTorch/HuggingFace Transformer Inference
+        # Real ONNX/HuggingFace Transformer Inference
         inputs = self.tokenizer(
             text,
-            return_tensors="pt",
+            return_tensors="np",  # Returns numpy arrays!
             truncation=True,
             max_length=512
         )
         
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            logits = outputs.logits
-            probabilities = torch.softmax(logits, dim=1).flatten().tolist()
-            predicted_class_id = torch.argmax(logits, dim=1).item()
+        onnx_inputs = {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"]
+        }
+        
+        # Run inference using ONNX Runtime InferenceSession
+        outputs = self.model.run(None, onnx_inputs)
+        logits = outputs[0]
+        
+        probabilities = softmax(logits).flatten().tolist()
+        predicted_class_id = np.argmax(logits, axis=1).item()
 
         predicted_label = self.label_map.get(predicted_class_id, "question")
         confidence = probabilities[predicted_class_id]
