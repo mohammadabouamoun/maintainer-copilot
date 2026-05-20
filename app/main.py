@@ -9,11 +9,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from opentelemetry import trace
 from minio import Minio
 from openai import AsyncOpenAI
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from fastembed import TextEmbedding
 
 from app.config import get_settings
 from app.infra.vault import VaultClient
 from app.infra.database import init_db_engine
+from app.infra.redis_client import init_redis_client, close_redis_client
 from app.infra.tracing import setup_tracing, trace_span_ctx, trace_span
 from app.infra.redaction import redact
 from app.domain.exceptions import AppError, RequestIDNotFoundError
@@ -52,9 +53,11 @@ async def lifespan(app: FastAPI):
         span.set_attribute("database.status", "initialized")
 
         # 5. Initialize RAG ML Models and API clients
-        logger.info("Loading SentenceTransformer and CrossEncoder models...")
-        retrieval_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-        reranker_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        logger.info("Loading fastembed TextEmbedding ONNX model (no PyTorch)...")
+        retrieval_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2", cache_dir="./models/fastembed")
+        # Cross-encoder reranker requires PyTorch which is excluded from this deployment.
+        # RerankerService gracefully falls back to RRF score ordering when model is None.
+        reranker_model = None
         
         app.state.retrieval_model = retrieval_model
         app.state.reranker_model = reranker_model
@@ -81,12 +84,18 @@ async def lifespan(app: FastAPI):
         app.state.minio_client = minio_client
         span.set_attribute("minio.status", "initialized")
 
+        # 8. Initialize Redis cache
+        redis_client = await init_redis_client(settings.redis_url)
+        app.state.redis_client = redis_client
+        span.set_attribute("redis.status", "initialized")
+
     yield
 
     # Clean shutdown of DB engine connection pool and HTTP clients within close span
     with trace_span_ctx("lifespan_shutdown"):
         await app.state.db_engine.dispose()
         await shared_client.aclose()
+        await close_redis_client()
 
 app = FastAPI(
     title="Maintainer's Copilot API", 
@@ -213,6 +222,8 @@ async def test_unhandled_error():
 # FastAPI-Users Auth & Router Registrations
 from app.api.routers.rag import router as rag_router
 from app.api.routers.chat import router as chat_router
+from app.api.routers.memory import router as memory_router
+from app.api.routers.widgets import router as widgets_router
 
 app.include_router(
     rag_router,
@@ -224,6 +235,18 @@ app.include_router(
     chat_router,
     prefix="/chat",
     tags=["chat"]
+)
+
+app.include_router(
+    memory_router,
+    prefix="/memory",
+    tags=["memory"]
+)
+
+app.include_router(
+    widgets_router,
+    prefix="/widgets",
+    tags=["widgets"]
 )
 
 app.include_router(

@@ -77,3 +77,15 @@ Before a user's prompt even hits the Hybrid Search engine, we transform it using
 **Decision:**
 We chose the **Query Rewriting** technique instead of HyDE (Hypothetical Document Embeddings) or Multi-Query.
 - **Why:** Query Rewriting requires a very short LLM generation (blazing fast on Llama 3) and prevents hallucinations. It simply takes a vague user prompt with pronouns (e.g., *"why does it not work with Python 3.12"*) and rewrites it into a highly specific search string (e.g., *"pandas installation errors and compatibility issues with Python 3.12"*). This prevents our Postgres FTS from matching on useless stop words.
+
+## Phase 4.4: Short-Term Memory Cache TTL (Redis)
+
+**Decision:** The Redis short-term memory cache for session history uses a TTL of **1 hour (3600 seconds)**.
+- **Why 1 hour:** The vast majority of maintainer issue-triage sessions conclude within a few minutes. Storing active contexts in RAM for 1 hour optimizes query speed without ballooning Redis memory usage indefinitely.
+- **Expiration Fallback:** If a conversation happens to span longer than an hour, the TTL will expire and clear the keys. When the user sends a new message, the chatbot orchestrator automatically experiences a Redis cache miss and flawlessly falls back to `Postgres` to reload the entire history. It then seamlessly backfills the Redis cache with the newly loaded history, resetting the TTL. This ensures perfect resilience with aggressive RAM limits.
+
+## Phase 4.5: Long-Term Memory Type
+
+**Decision:** Our primary default long-term memory bucket uses the **`semantic`** type tag.
+- **Rationale:** We define `episodic` as temporal, point-in-time events (e.g. "I encountered bug 123 yesterday"), whereas `semantic` represents factual preferences or rules (e.g. "I prefer concise answers", "Never use Tailwind CSS"). Since the Maintainer Copilot's `write_memory` tool is primarily designed to persist global user preferences across disparate conversations, `semantic` perfectly matches the ontological nature of the data. Procedural memory (skills) is currently out of scope for the Copilot's use case.
+- **LLM Tool Isolation:** Long-term memory is **only** written when the LLM orchestrator explicitly invokes the `write_memory` tool. We explicitly instruct the LLM not to save mundane chat history into vector storage, keeping the long-term knowledge base strictly limited to high-value user facts.

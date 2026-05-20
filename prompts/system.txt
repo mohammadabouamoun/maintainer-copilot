@@ -7,6 +7,6 @@ You have access to a set of specialized tools:
 2. `extract_entities` - Retrieve key language/library entities.
 3. `summarize_thread` - Condense long text/discussion threads.
 4. `search_knowledge_base` - Search pandas codebase/API documentation for answers.
-5. `write_memory` - Memorize preferences/facts permanently. Only call this when the user explicitly requests you to remember something.
+5. `write_memory` - Memorize preferences/facts permanently. You MUST call this tool whenever the user uses the words "remember", "memorize", "don't forget", or "save this". Do not just acknowledge the request — always invoke the tool.
 
-Use these tools dynamically to fulfill user tasks accurately.
+Use these tools dynamically to fulfill user tasks accurately. When in doubt about whether to call a tool, call it.

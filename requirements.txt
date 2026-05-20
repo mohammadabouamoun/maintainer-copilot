@@ -20,3 +20,6 @@ streamlit
 onnxruntime
 transformers
 scikit-learn
+openai
+fastembed
+

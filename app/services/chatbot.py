@@ -11,8 +11,9 @@ from minio import Minio
 
 from app.config import Settings
 from app.repositories.models import Conversation, Message
-from app.services.memory import recall_relevant, write_long_term
+from app.services.memory import recall_relevant, write_long_term, get_conversation_history, append_message
 from app.services.rag_service import RAGService
+from fastembed import TextEmbedding
 
 logger = structlog.get_logger()
 
@@ -23,6 +24,7 @@ class ChatbotService:
         db_engine: AsyncEngine,
         minio_client: Minio,
         rag_service: RAGService,
+        retrieval_model: TextEmbedding,
         settings: Settings
     ):
         """
@@ -32,6 +34,7 @@ class ChatbotService:
         self.db_engine = db_engine
         self.minio_client = minio_client
         self.rag_service = rag_service
+        self.retrieval_model = retrieval_model
         self.settings = settings
         self._system_prompt_base = self._load_system_prompt()
 
@@ -45,12 +48,30 @@ class ChatbotService:
             return "You are Maintainer's Copilot, a helpful open-source assistant."
 
     async def _load_history(self, conversation_id: str) -> List[Message]:
-        """Loads previous conversation messages from the database."""
+        """Loads previous conversation messages from Redis cache or database fallback."""
+        # 1. Try loading from Redis cache
+        try:
+            cached_history = await get_conversation_history(conversation_id)
+            if cached_history:
+                return cached_history
+        except Exception as e:
+            logger.warning("Redis cache load failed, falling back to DB", error=str(e))
+
+        # 2. Fallback to Database
         conv_uuid = uuid.UUID(conversation_id)
         async with AsyncSession(self.db_engine) as session:
             stmt = select(Message).where(Message.conversation_id == conv_uuid).order_by(Message.created_at.asc())
             res = await session.execute(stmt)
-            return list(res.scalars().all())
+            history = list(res.scalars().all())
+
+            # 3. Backfill cache if messages were loaded from DB
+            for msg in history:
+                try:
+                    await append_message(conversation_id, msg)
+                except Exception as e:
+                    logger.warning("Redis cache backfill failed", error=str(e))
+            
+            return history
 
     async def _ensure_conversation(self, conversation_id: str, user_id: uuid.UUID) -> None:
         """Ensures that the conversation record exists in the database."""
@@ -65,16 +86,28 @@ class ChatbotService:
                     session.add(conversation)
 
     async def _save_message(self, conversation_id: str, role: str, content: str) -> None:
-        """Persists a new message to the database."""
+        """Persists a new message to the database and Redis cache."""
         conv_uuid = uuid.UUID(conversation_id)
+        msg = Message(
+            conversation_id=conv_uuid,
+            role=role,
+            content=content
+        )
+        
+        # Save to DB
         async with AsyncSession(self.db_engine) as session:
             async with session.begin():
-                msg = Message(
-                    conversation_id=conv_uuid,
-                    role=role,
-                    content=content
-                )
                 session.add(msg)
+                
+        # Detached instances can't lazy-load attributes after session close,
+        # so we pass a new disconnected Message object to the cache
+        cache_msg = Message(role=role, content=content)
+        
+        # Save to Redis Cache
+        try:
+            await append_message(conversation_id, cache_msg)
+        except Exception as e:
+            logger.warning("Redis cache append failed", error=str(e))
 
     # --- Tool implementations with exception shields ---
     async def _tool_classify_issue(self, text: str) -> Dict[str, Any]:
@@ -140,6 +173,8 @@ class ChatbotService:
         try:
             # actor_id is user_id for user preference memorization
             result = await write_long_term(
+                db_engine=self.db_engine,
+                retrieval_model=self.retrieval_model,
                 user_id=user_id,
                 content=content,
                 memory_type=memory_type,
@@ -173,7 +208,12 @@ class ChatbotService:
         history = await self._load_history(conversation_id)
 
         # 2. Recall relevant long-term memories
-        memories = await recall_relevant(user_id=user_id, query=user_message)
+        memories = await recall_relevant(
+            db_engine=self.db_engine,
+            retrieval_model=self.retrieval_model,
+            user_id=user_id,
+            query=user_message
+        )
         system_prompt = self._system_prompt_base
         if memories:
             memory_list = "\n".join([f"- {m['content']}" for m in memories if isinstance(m, dict) and "content" in m])

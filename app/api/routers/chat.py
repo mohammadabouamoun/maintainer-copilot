@@ -82,6 +82,7 @@ async def chat_message(
         db_engine=db_engine,
         minio_client=minio_client,
         rag_service=rag_service,
+        retrieval_model=retrieval_model,
         settings=settings
     )
 

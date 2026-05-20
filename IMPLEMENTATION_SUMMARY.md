@@ -2,7 +2,7 @@
 
 This document provides a highly detailed summary of the architectural layout, implemented components, configuration state, and next steps for the **Maintainer's Copilot** repository. This file serves as the handoff document for continuing the development session.
 
-**Last Updated:** Phase 4.3 complete — 27 tests passing.
+**Last Updated:** Phase 4.5 complete — Memory layer integrated, PyTorch removed.
 
 ---
 
@@ -354,19 +354,40 @@ Full E2E flow verified:
 
 ---
 
-## 9. What is Left to Implement (Phases 4.4 → 4.7)
+## 9. Recent Major Architectural Changes
+
+### PyTorch Elimination & ONNX `fastembed` Migration
+To optimize the development environment, significantly reduce Docker image sizes (avoiding 2GB+ PyTorch binaries), and allow the backend to run lightweight on CPU, **PyTorch was completely removed** from the dependency tree for the memory and RAG embedding layers. 
+
+**Detailed Changes:**
+1. **Library Replacement**: `sentence-transformers` was removed from `requirements.txt` and replaced with `fastembed` (version `0.5.1+`). `fastembed` relies purely on ONNX Runtime for inference.
+2. **Model Loading Updates**: In `app/main.py`, the embedding model initialization was updated to use `fastembed.TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")`.
+3. **Retrieval API Update**: In `app/services/retrieval.py` and `app/services/memory.py`, embedding generation was adapted to consume the Python generator output yielded by `fastembed.embed()`.
+4. **Cross-Encoder Fallback**: Because `fastembed`'s `TextCrossEncoder` is not available without a PyTorch installation in older versions, `app/services/reranker.py` was refactored to gracefully handle `model=None`. When the cross-encoder is disabled, the reranking layer correctly falls back to sorting by the existing RRF (Reciprocal Rank Fusion) hybrid retrieval score.
+
+---
+
+## 10. Completed Memory Layer Implementation (Phases 4.4 & 4.5)
 
 ### Phase 4.4 — Short-Term Memory (Redis)
-- `app/infra/redis_client.py`: Wrap `redis.asyncio.Redis`.
-- `app/services/memory.py`: Implement `get_conversation_history(conversation_id)` via `LRANGE` and `append_message()` via `RPUSH + EXPIRE`.
-- Default TTL: 3600 seconds. Fallback: load from Postgres when key is expired.
-- Update `ChatbotService._load_history()` to prefer Redis over DB.
-- Document TTL rationale in `DECISIONS.md`.
+- **Implementation**: Created `app/infra/redis_client.py` using `redis.asyncio.Redis` as the cache provider.
+- **Workflow**:
+  - `get_conversation_history`: Retrieves messages from `conversations:{id}` using LRANGE.
+  - On a cache miss, the system loads the conversation history from PostgreSQL and backfills the Redis cache.
+  - `append_message`: Pushes new messages to Redis (`RPUSH`) synchronously with database writes.
+- **Optimization**: A strict Time-To-Live (TTL) of **3600 seconds (1 hour)** is enforced via an `EXPIRE` command on every cache append. This prevents temporal conversational bloat in memory. If a session expires, the database serves as the persistent fallback.
 
-### Phase 4.5 — Long-Term Memory (pgvector)
-- `write_long_term()`: Embed content, `INSERT INTO long_term_memories`, `INSERT INTO audit_log`.
-- `recall_relevant()`: Embed query, `SELECT ... ORDER BY embedding <=> $1 LIMIT $2`.
-- Triggered **only** via the `write_memory` LLM tool — never automatically.
+### Phase 4.5 — Long-Term Memory (`pgvector`)
+- **Implementation**: Developed `app/services/memory.py` utilizing the `TextEmbedding` interface.
+- **Workflow**:
+  - `write_long_term()`: Generates a dense vector via `fastembed` and inserts it into the `long_term_memories` table along with standard redaction processing and audit logs.
+  - `recall_relevant()`: Semantically searches the vector database using `embedding <=> query_embedding LIMIT 5`.
+- **System Injection**: Long-term memory recall is explicitly hooked into the `ChatbotService` core loop. Every incoming message performs a semantic search to extract relevant user facts/preferences, dynamically appending them to the System Prompt.
+- **LLM Tool**: The LLM autonomously triggers the `write_memory` function call when explicitly instructed by the user to "remember" or "memorize" a detail. Tested successfully via a targeted system prompt update.
+
+---
+
+## 11. What is Left to Implement (Phases 4.6 → 4.8)
 
 ### Phase 4.6 — Streamlit App (`chatbot/app.py`)
 - **Login screen:** email/password → `/auth/login` → JWT in `st.session_state`.
@@ -382,7 +403,7 @@ Full E2E flow verified:
 
 ---
 
-## 10. Engineering Standards & Guidelines
+## 12. Engineering Standards & Guidelines
 
 Maintain the following across all future sessions:
 

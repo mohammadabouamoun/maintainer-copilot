@@ -36,11 +36,18 @@ class RedactingSpanProcessor(SpanProcessor):
         
         # 2. Redact event attributes (e.g. exceptions, errors)
         if hasattr(span, "_events") and span._events:
-            for event in span._events:
+            for i, event in enumerate(span._events):
                 if hasattr(event, "attributes") and event.attributes:
+                    new_attrs = {}
                     for k, v in list(event.attributes.items()):
-                        if isinstance(v, str):
-                            event.attributes[k] = redact(v)
+                        new_attrs[k] = redact(v) if isinstance(v, str) else v
+                    
+                    from opentelemetry.sdk.trace import Event
+                    span._events[i] = Event(
+                        name=event.name,
+                        attributes=new_attrs,
+                        timestamp=event.timestamp
+                    )
 
         self.span_processor.on_end(span)
 

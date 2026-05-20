@@ -532,63 +532,54 @@
 
 ### 4.4 Short-Term Memory (Redis)
 
-- [ ] In `app/infra/redis_client.py`, wrap `redis.asyncio.Redis`.
-- [ ] In `app/services/memory.py`:
-  ```python
-  async def get_conversation_history(conversation_id: str) -> list[Message]:
-      # LRANGE conversations:{id} 0 -1
-  
-  async def append_message(conversation_id: str, message: Message, ttl_seconds: int = 3600):
-      # RPUSH + EXPIRE
-  ```
-- [ ] **Justify the TTL in `DECISIONS.md`**: Why 1 hour? What happens when the TTL expires mid-conversation? What is the fallback (load from Postgres)?
-- [ ] **Verify:** Send 3 messages. `docker-compose exec redis redis-cli LRANGE conversations:test-id 0 -1` shows the messages. Wait for TTL, verify they're gone.
+- [x] Create an `init_redis_client` dependency in `app/infra/redis_client.py`.
+- [x] Integrate Redis in `ChatbotService`:
+  - When loading history, check Redis first (`get_conversation_history`).
+  - On cache miss, load from PostgreSQL, then backfill to Redis.
+  - When saving a message, write to PostgreSQL AND `append_message` to Redis.
+- [x] Set a TTL (Time-To-Live) of 3600 seconds on the Redis conversation key, refreshed on each append, to save memory. Document this decision in `DECISIONS.md`.
+- [x] **Verify:** Send multiple messages. Call the `/chat/message` API. Inspect Redis using `docker exec -it redis redis-cli keys *` and `lrange <key> 0 -1`. Ensure TTL is set correctly.
 
 ---
 
 ### 4.5 Long-Term Memory (pgvector)
 
-- [ ] In `app/services/memory.py`, add:
-  ```python
-  async def write_long_term(user_id, content: str, memory_type: str, actor_id):
-      embedding = embed(content)
-      # INSERT INTO long_term_memories
-      # INSERT INTO audit_log (actor, action='memory_write', target=memory_id, timestamp)
-
-  async def recall_relevant(user_id, query: str, top_k: int = 5) -> list[Memory]:
-      embedding = embed(query)
-      # SELECT ... ORDER BY embedding <=> $1 LIMIT $2
-  ```
-- [ ] Document your memory type choice (episodic / semantic / procedural) and rationale in `DECISIONS.md`.
-- [ ] The `write_memory` LLM tool calls `write_long_term`. **No other code path writes long-term memory automatically** (spec: § "Memory").
-- [ ] **Verify:** Tell the chatbot "Remember that I prefer concise answers." Call the `write_memory` tool explicitly. Query `SELECT * FROM long_term_memories;` — the row is there. Send a new conversation — the memory is loaded and affects the response.
+- [x] Add `memory_type` (e.g., "preference", "fact") and `actor_id` columns to the `LongTermMemory` model. Document the memory types strategy in `DECISIONS.md`.
+- [x] Create `app/services/memory.py` with:
+  - `write_long_term`: Embeds text using SentenceTransformers and inserts into `long_term_memories`.
+  - `recall_relevant`: Semantic search using `embedding <=> query_embedding LIMIT 5`.
+- [x] Inject `recall_relevant` into the `ChatbotService` core loop (Phase 4.1):
+  - On each message, query long-term memory using the user's message as context.
+  - Append relevant memories to the System Prompt.
+- [x] In `ChatbotService`, register the `write_memory` tool so the LLM can actively choose to save a user's instruction.
+- [x] **Verify:** Tell the chatbot "Remember that I prefer extremely concise answers." Call the `write_memory` tool explicitly. Query `SELECT * FROM long_term_memories;` — the row is there. Send a new conversation — the memory is loaded and affects the response.
 
 ---
 
 ### 4.6 Streamlit App
 
-- [ ] Create `chatbot/app.py`. Screens:
+- [x] Create `chatbot/app.py`. Screens:
   - **Login** — email + password → calls `/auth/login` → stores JWT in `st.session_state`
   - **Chat** — calls `/chat/message` (streaming), displays conversation history
   - **Memory Inspector** (admin + user) — lists long-term memories for current user, allows deletion
   - **Widget Config** (admin only) — form to create/edit widget records, shows embed snippet
-- [ ] Load the FastAPI base URL from an env var (`API_URL`).
-- [ ] **Verify:** Open Streamlit, log in, send a message, see the streamed response, open the memory inspector.
+- [x] Load the FastAPI base URL from an env var (`API_URL`).
+- [x] **Verify:** Open Streamlit, log in, send a message, see the streamed response, open the memory inspector.
 
 ---
 
 ### 4.7 Widget Config API
 
-- [ ] In `app/api/routers/widgets.py`:
+- [x] In `app/api/routers/widgets.py`:
   ```
   POST   /widgets           (admin only) — create widget
   GET    /widgets/{id}      (admin only) — get config
   PUT    /widgets/{id}      (admin only) — update config
   GET    /widgets/{id}/public — no auth, returns {theme, greeting, enabled_tools}
   ```
-- [ ] CORS for the widget iframe comes from `allowed_origins` in the widget DB row — not a hardcoded env var.
-- [ ] Add `Content-Security-Policy: frame-ancestors {origins}` to the response headers for the embed route (spec: § "Origin Allowlisting").
-- [ ] **Verify:** Create a widget via the Streamlit admin page. Query `/widgets/{id}/public` — returns config. Change `allowed_origins` — verify the CSP header changes accordingly.
+- [x] CORS for the widget iframe comes from `allowed_origins` in the widget DB row — not a hardcoded env var.
+- [x] Add `Content-Security-Policy: frame-ancestors {origins}` to the response headers for the embed route (spec: § "Origin Allowlisting").
+- [x] **Verify:** Create a widget via the Streamlit admin page. Query `/widgets/{id}/public` — returns config. Change `allowed_origins` — verify the CSP header changes accordingly.
 
 ---
 

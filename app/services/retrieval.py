@@ -2,13 +2,13 @@ import structlog
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy import text
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from app.domain.schemas import Chunk
 
 logger = structlog.get_logger()
 
 class RetrievalService:
-    def __init__(self, engine: AsyncEngine, embedding_model: SentenceTransformer):
+    def __init__(self, engine: AsyncEngine, embedding_model: TextEmbedding):
         """
         Initializes the RetrievalService with injected dependencies to adhere to Standard 2.
         """
@@ -17,8 +17,8 @@ class RetrievalService:
         
     async def _dense_search(self, query: str, top_k: int) -> dict:
         """Performs semantic vector search using pgvector cosine distance."""
-        # Embed query (sync but very fast, so safe for main thread. For heavy loads, use asyncio.to_thread)
-        query_vector = self.model.encode([query])[0].tolist()
+        # fastembed.embed() returns a generator; take the first element
+        query_vector = list(self.model.embed([query]))[0].tolist()
         
         stmt = text("""
             SELECT id, source_type, source_id, chunk_index, content, metadata,
