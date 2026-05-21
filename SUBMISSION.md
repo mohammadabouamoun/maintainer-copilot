@@ -1,7 +1,7 @@
 Project 7 - Mohammad Abouamoun
 Repo: https://github.com/mohammadabouamoun/maintainer-copilot
 Tag: v0.1.0-week7
-Dataset: fastapi/fastapi issues, [2627 train / 464 val / 545 test]
+Dataset: pandas issues, [2627 train / 464 val / 545 test]
 
 Classification — Classical: F1=0.54 | Fine-tuned: F1=0.56 | LLM: F1=0.74
 Deployment choice: Fine-tuned DistilBERT - because it delivers low local CPU latency (169.6ms) and high F1 score with absolute data privacy and zero API costs.
