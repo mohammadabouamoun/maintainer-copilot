@@ -3,6 +3,8 @@
 Maintainer's Copilot is an AI-powered assistant designed for open-source project maintainers. It simplifies issue triage, provides semantic context retrieval (RAG) over project documentation and resolved issues, and manages a long-term memory system (episodic, semantic, and procedural) to deliver highly personalized support.
 
 ---
+🔗 Colab Notebook:
+https://colab.research.google.com/drive/1hGungytuDHT7wDPri7WRQlJp6MwNf6XP?usp=sharing
 
 ## 🌟 Key Features
 
