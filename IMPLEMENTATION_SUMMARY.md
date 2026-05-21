@@ -416,3 +416,92 @@ Maintain the following across all future sessions:
 | **OTel Spans** | Every service method gets a child span. Include input/output attributes. |
 | **Tool Failure Shield** | All external HTTP calls in tool handlers are wrapped in `try/except` returning a clean `ToolFailure` dict — never raise into the chat loop. |
 | **No data in Git** | `data/`, `models/*.safetensors`, `.env` are all in `.gitignore`. |
+
+---
+
+## 13. Local Testing & Verification Workflow
+
+This section outlines how to spin up and run the entire ecosystem locally for interactive testing and developer verification.
+
+### 13.1 Start Infrastructure Containers (Docker)
+First, ensure that the core external infrastructure services (Database with pgvector, Redis, MinIO, and Vault) are up and running:
+```bash
+docker compose up -d db redis minio vault migrate
+```
+Verify that they are healthy and that database migrations have been successfully applied.
+
+### 13.2 Running the Application Services Locally
+
+You can run the application servers directly on your host machine inside the virtual environment:
+
+1. **Start the FastAPI Backend API (Port 8000):**
+   ```bash
+   DATABASE_URL=postgresql://user:password@localhost:5432/dbname \
+   MINIO_ENDPOINT=localhost:9002 \
+   VAULT_ADDR=http://localhost:8200 \
+   REDIS_URL=redis://localhost:6379/0 \
+   LLM_API_KEY=your_groq_api_key \
+   LLM_BASE_URL=https://api.groq.com/openai/v1 \
+   LLM_MODEL=llama-3.1-8b-instant \
+   MODELSERVER_URL=http://localhost:8001 \
+   PYTHONPATH=. \
+   .venv/bin/uvicorn app.main:app --port 8000 --reload
+   ```
+
+2. **Start the ModelServer (Port 8001):**
+   ```bash
+   PYTHONPATH=. .venv/bin/uvicorn modelserver.main:app --port 8001 --reload
+   ```
+
+3. **Start the Streamlit Admin Application (Port 8501):**
+   ```bash
+   API_URL=http://localhost:8000 .venv/bin/streamlit run chatbot/app.py --server.port 8501
+   ```
+
+4. **Start the React Chatbot Widget (Port 3000):**
+   Navigate to the `widget` folder, install dependencies, and start the Vite dev server:
+   ```bash
+   cd widget
+   npm install
+   npm run dev
+   ```
+
+5. **Start the Host Demo Page (Port 9000):**
+   Navigate to the host directory and serve the static `index.html` page using Python's built-in HTTP server:
+   ```bash
+   cd demo/host
+   python3 -m http.server 9000
+   ```
+
+---
+
+### 13.3 RAG Testing & Verification Examples
+
+The database is seeded with a partial snapshot of the pandas documentation. You can open `http://localhost:9000` in your browser and test the widget with the following scenarios to verify correct RAG behavior:
+
+#### Scenario A: Query with Fully Documented Content (Successful Answer)
+* **Query:** `Search the documentation for What's new in pandas 2.0.0`
+* **Behind the Scenes:** The system triggers the `search_knowledge_base` tool, retrieves multiple full chunks matching `v2.0.0.rst` from the vector store, and feeds them into the LLM context.
+* **Expected Response:** The chatbot streams a detailed markdown response summarizing the new features in pandas 2.0.0 (e.g., Arrow backend integration, Copy-on-Write improvements, index improvements).
+
+#### Scenario B: Query with Stub/Empty Documented Content (Safe Guarded Answer)
+* **Query:** `Please search the pandas documentation for v2.2.0 changes.`
+* **Behind the Scenes:** The system triggers the `search_knowledge_base` tool and searches for v2.2.0. In the database, the file `v2.2.0.rst` exists as an empty stub containing only the title header:
+  ```text
+  Title: v2.2.0.rst
+  .. _whatsnew_220: What's new in 2.2.0 (January 19, 2024)
+  ```
+  Since the vector search retrieves only this header chunk with no body text, the LLM correctly avoids hallucinating details.
+* **Expected Response:** The chatbot states that while the document `v2.2.0.rst` is listed, no actual change list or detailed features exist within the provided documentation context (safe fallback).
+
+another query `Summarize this issue discussion: "User A: I am getting a crash on line 55. User B: Have you tried upgrading numpy? User A: Yes, it did not work. User C: You need to set the environment variable NUM_THREADS=1. User A: That fixed it! Thanks!"` 
+* **Behind the Scenes:** The system triggers the `search_knowledge_base` tool, retrieves multiple full chunks matching "crash" and "NUM_THREADS=1" from the vector store, and feeds them into the LLM context.
+* **Expected Response:** The chatbot streams a detailed markdown response summarizing the issue and the solution (e.g., "The user was getting a crash on line 55, which was resolved by setting the environment variable NUM_THREADS=1.").
+
+another query `Extract entities from: "Failed to load dynamic library cudart64_110.dll on Windows 11 with PyTorch 2.1"`
+* **Behind the Scenes:** The system triggers the `search_knowledge_base` tool, retrieves multiple full chunks matching "Failed to load dynamic library cudart64_110.dll on Windows 11 with PyTorch 2.1" from the vector store, and feeds them into the LLM context.
+* **Expected Response:** The chatbot streams a detailed markdown response summarizing the issue and the solution (e.g., "The user was getting a crash on line 55, which was resolved by setting the environment variable NUM_THREADS=1.").
+
+another query: `"What is the new dtype_backend argument in pandas 2.0?"`
+* **Behind the Scenes:** The system triggers the `search_knowledge_base` tool, retrieves multiple full chunks matching "dtype_backend" from the vector store, and feeds them into the LLM context.
+* **Expected Response:** The chatbot streams a detailed markdown response summarizing the new dtype_backend argument in pandas 2.0 (e.g., "The dtype_backend argument in pandas 2.0 is a new argument that is used to specify the dtype backend that is used to store the data in the DataFrame. It is a string that can be either 'pyarrow' or 'numpy'.").

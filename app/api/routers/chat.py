@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from app.config import get_settings
-from app.services.auth import current_active_user
+from app.services.auth import current_active_user, fastapi_users
+current_active_user_optional = fastapi_users.current_user(active=True, optional=True)
 from app.domain.exceptions import NotFoundError, PermissionDenied
 
 logger = structlog.get_logger()
@@ -16,6 +17,7 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     message: str
+    widget_id: Optional[str] = None
 
 class MessageResponse(BaseModel):
     id: str
@@ -33,17 +35,60 @@ class ConversationDetailResponse(BaseModel):
 async def chat_message(
     request: Request,
     body: ChatRequest,
-    user = Depends(current_active_user)
+    user = Depends(current_active_user_optional)
 ):
     """
     Sends a message to the chatbot service and streams the token-by-token response back.
     Includes dynamic tool resolution and persistence.
     """
     conversation_id = body.conversation_id or str(uuid.uuid4())
-    logger.info("Chat message received", conversation_id=conversation_id, user_email=user.email)
-
     settings = get_settings()
     db_engine = request.app.state.db_engine
+
+    if not user:
+        if not body.widget_id:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        
+        # Verify widget and origin
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy import select
+        from app.repositories.models import Widget
+        from fastapi import HTTPException
+        
+        try:
+            widget_uuid = uuid.UUID(body.widget_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid widget ID format")
+            
+        async with AsyncSession(db_engine) as session:
+            stmt = select(Widget).where(Widget.widget_id == widget_uuid)
+            res = await session.execute(stmt)
+            widget = res.scalar_one_or_none()
+            if not widget:
+                raise HTTPException(status_code=404, detail="Widget not found")
+            
+            # Simple CORS/Origin verification
+            origin = request.headers.get("origin") or ""
+            referer = request.headers.get("referer") or ""
+            
+            is_allowed = False
+            for allowed in widget.allowed_origins:
+                if allowed in origin or allowed in referer:
+                    is_allowed = True
+                    break
+            
+            if not is_allowed and widget.allowed_origins:
+                raise HTTPException(status_code=403, detail="Origin not allowed")
+                
+            user_id = widget.created_by
+            user_email = "anonymous-widget-user"
+    else:
+        user_id = user.id
+        user_email = user.email
+
+    logger.info("Chat message received", conversation_id=conversation_id, user_email=user_email)
+
     openai_client = request.app.state.openai_client
     minio_client = request.app.state.minio_client
     retrieval_model = request.app.state.retrieval_model
@@ -94,7 +139,7 @@ async def chat_message(
             async for token in chatbot_service.chat(
                 conversation_id=conversation_id,
                 user_message=body.message,
-                user_id=user.id
+                user_id=user_id
             ):
                 yield token
         except Exception as e:
@@ -102,6 +147,7 @@ async def chat_message(
             yield f"\n[Error: {str(e)}]"
 
     return StreamingResponse(event_generator(), media_type="text/plain")
+
 
 
 @router.get("/conversations/{id}", response_model=ConversationDetailResponse)

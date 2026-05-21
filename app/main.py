@@ -103,6 +103,17 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 logger = structlog.get_logger()
 
 # 1. Request correlation middleware
@@ -274,3 +285,14 @@ async def admin_dashboard(admin_user=Depends(require_role("admin"))):
         "message": f"Welcome to the admin dashboard, {admin_user.email}!",
         "role": admin_user.role
     }
+
+from fastapi.responses import FileResponse
+import os
+
+@app.get("/widget.js")
+async def get_widget_js():
+    widget_js_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "widget", "public", "widget.js")
+    if os.path.exists(widget_js_path):
+        return FileResponse(widget_js_path, media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="Loader script not found")
+
