@@ -1,0 +1,18 @@
+[
+  {"title": "App crashes with ImportError on startup after upgrading to 2.0", "label": "bug"},
+  {"title": "Support for Python 3.12 in the next major release?", "label": "question"},
+  {"title": "Add dark mode toggle to the dashboard UI", "label": "enhancement"},
+  {"title": "Memory leak when calling read_csv inside a loop", "label": "bug"},
+  {"title": "How do I filter rows containing NaN values in a DataFrame?", "label": "question"},
+  {"title": "Expose a new public API for batch data processing", "label": "enhancement"},
+  {"title": "TypeError raised when merging DataFrames with mismatched dtypes", "label": "bug"},
+  {"title": "Performance is extremely slow when loading files larger than 1GB", "label": "performance"},
+  {"title": "KeyError when accessing column after groupby on MultiIndex", "label": "bug"},
+  {"title": "Is it possible to chain multiple aggregations in a single call?", "label": "question"},
+  {"title": "Add support for Parquet compression in to_parquet method", "label": "enhancement"},
+  {"title": "read_json raises ValueError on large nested JSON files", "label": "bug"},
+  {"title": "What is the difference between loc and iloc indexing?", "label": "question"},
+  {"title": "DataFrame.plot() should support logarithmic y-axis by default", "label": "enhancement"},
+  {"title": "Segfault when converting timezone-aware timestamps on Windows", "label": "bug"},
+  {"title": "Slow pivot_table performance compared to version 1.x", "label": "performance"}
+]

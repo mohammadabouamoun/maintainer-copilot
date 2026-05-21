@@ -58,3 +58,31 @@ We active-mask the following sensitive tokens inside all system text processing 
 *   **Regex Pattern:** `\b\w+:\/\/[^:\s]+:[^@\s]+@\S+\b`
 *   **Replacement:** `[REDACTED_CONN_STRING]`
 *   **Defense & Rationale:** Connection URIs frequently contain root usernames, raw cleartext passwords, databases, and database host addresses, exposing database systems to lateral movement.
+
+---
+
+## 🗺️ Where Redaction is Applied in the Stack
+
+Redaction is applied at several key boundaries to prevent sensitive information leakages:
+1. **Logging Layer:** Integrated via a custom `structlog` processor and a python standard `logging.Filter` which passes log message strings and dictionary values through `redact()`.
+2. **Exception Handling:** The FastAPI global exception handlers for `AppError` and generic `Exception` pass both error messages and raw stack tracebooks through `redact()` before logging.
+3. **OpenTelemetry Span Processor:** Registered as `RedactingSpanProcessor`, it intercepts spans before exporting them to Jaeger, sanitizing span attributes and exception events.
+4. **Long-Term Memory Storage:** The `write_long_term` service sanitizes all memory content string payloads before generating vector embeddings and saving them to the PostgreSQL database.
+
+---
+
+## 🕵️ Trace: A User Pastes a GitHub Token Into the Chat
+
+If a user pastes a GitHub token (`ghp_...`) into the chat interface, let's trace every place it could appear **with** and **without** redaction:
+
+### 1. Places It Appears WITHOUT Redaction (Cleartext)
+*   **Network Request Payload:** The HTTP POST request body sent from the React widget browser bundle to `/chat/message` (intercepted by reverse proxies / TLS termination endpoints).
+*   **FastAPI In-Memory State:** The raw string variable within the python memory space inside the FastAPI uvicorn worker thread.
+*   **Redis Short-Term Cache:** Stored inside the conversation history list (`conversations:{conversation_id}`) in cleartext to ensure the LLM receives the exact, unmodified query.
+*   **Outbound LLM Request:** Sent in cleartext via HTTPS to the external LLM provider (e.g. OpenAI/Groq API) for inference.
+
+### 2. Places It is GUARANTEED to be REDACTED
+*   **Stdout/Stderr Console Logs:** Any logger statement recording user input or session logs is scrubbed to output `[REDACTED_GH_TOKEN]`.
+*   **OpenTelemetry traces:** Spans displayed in Jaeger dashboard will have attributes like `user_message` redacted.
+*   **System Exceptions / Tracebacks:** If a database error or network timeout occurs, any logged traceback containing the message string is fully sanitized.
+*   **Long-Term Memories Vector DB:** If the LLM invokes the `write_memory` tool to store a preference, it is redacted before database write and embedding generation.

@@ -17,15 +17,49 @@ from app.infra.database import init_db_engine
 from app.infra.redis_client import init_redis_client, close_redis_client
 from app.infra.tracing import setup_tracing, trace_span_ctx, trace_span
 from app.infra.redaction import redact
-from app.domain.exceptions import AppError, RequestIDNotFoundError
+from app.domain.exceptions import AppError, RequestIDNotFoundError, TracingError, ConfigError
 from app.domain.schemas import UserRead, UserCreate, UserUpdate
 from app.services.auth import fastapi_users, auth_backend, require_role
+import socket
+import yaml
+from urllib.parse import urlparse
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load global cached settings
     settings = get_settings()
     
+    # ── Refuse-to-Boot Checks ──────────────────────────────────────────────────
+    # 1. Tracing backend connectivity check
+    otlp_endpoint = settings.tracing_backend_url
+    if otlp_endpoint:
+        parsed = urlparse(otlp_endpoint)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 4317
+        try:
+            with socket.create_connection((host, port), timeout=2.0):
+                pass
+        except Exception as e:
+            raise TracingError(f"Cannot connect to {otlp_endpoint}")
+
+    # 2. Check for 0 or disabled evaluation thresholds
+    thresholds_path = "evals/eval_thresholds.yaml"
+    if os.path.exists(thresholds_path):
+        try:
+            with open(thresholds_path, "r") as f:
+                thresholds = yaml.safe_load(f)
+            
+            for metric, value in thresholds.get("classification", {}).items():
+                if value == 0 or value is None:
+                    raise ConfigError(f"threshold for {metric} is 0 or disabled")
+            for metric, value in thresholds.get("rag", {}).items():
+                if value == 0 or value is None:
+                    raise ConfigError(f"threshold for {metric} is 0 or disabled")
+        except ConfigError:
+            raise
+        except Exception as e:
+            raise ConfigError(f"Failed to parse thresholds file: {e}")
+
     # Initialize OpenTelemetry exporter and instrument FastAPI (Standard 1.5)
     setup_tracing(
         app=app,

@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from openai import AsyncOpenAI
+from minio import Minio
+import io
 from app.services.retrieval import RetrievalService
 from app.services.reranker import RerankerService
 from app.services.transform import QueryTransformService
@@ -99,6 +101,10 @@ async def run_evaluation():
     # Load thresholds
     with open("evals/eval_thresholds.yaml", "r") as f:
         thresholds = yaml.safe_load(f)
+        
+    for metric, value in thresholds.get("rag", {}).items():
+        if value == 0 or value is None:
+            raise ValueError(f"ConfigError: threshold for {metric} is 0 or disabled")
         
     # Initialize services & databases
     db_url = "postgresql+asyncpg://user:password@localhost:5432/dbname"
@@ -246,6 +252,35 @@ async def run_evaluation():
         json.dump(report, f, indent=2)
         
     print(f"\\nEvaluation report written to {report_path}")
+
+    # ── Upload to MinIO ──────────────────────────────────────────────────────
+    git_sha = os.getenv("EVAL_GIT_SHA", "local")
+    minio_endpoint = os.getenv("MINIO_ENDPOINT")
+    minio_access_key = os.getenv("MINIO_ACCESS_KEY")
+    minio_secret_key = os.getenv("MINIO_SECRET_KEY")
+    if minio_endpoint and minio_access_key and minio_secret_key:
+        try:
+            minio_client = Minio(
+                minio_endpoint,
+                access_key=minio_access_key,
+                secret_key=minio_secret_key,
+                secure=False
+            )
+            bucket_name = "eval-reports"
+            if not minio_client.bucket_exists(bucket_name):
+                minio_client.make_bucket(bucket_name)
+
+            report_bytes = json.dumps(report, indent=2).encode('utf-8')
+            minio_client.put_object(
+                bucket_name,
+                f"{git_sha}_rag.json",
+                io.BytesIO(report_bytes),
+                len(report_bytes),
+                content_type="application/json"
+            )
+            print(f"Uploaded RAG eval report to MinIO in bucket {bucket_name} as {git_sha}_rag.json")
+        except Exception as e:
+            print(f"Warning: Could not upload RAG report to MinIO: {e}")
     print("\\n=== EVALUATION SUMMARY ===")
     print(f"Hit@5: {avg_hit_at_5:.4f} (Threshold: {thresholds['rag']['hit_at_5']})")
     print(f"MRR@10: {avg_mrr:.4f}")

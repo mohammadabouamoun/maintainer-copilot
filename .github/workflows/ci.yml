@@ -1,7 +1,102 @@
 name: CI
-on: [push]
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
 jobs:
   ci:
     runs-on: ubuntu-latest
+
+    env:
+      # Secrets injected from GitHub Actions repository secrets
+      DATABASE_URL: postgresql+asyncpg://user:password@localhost:5432/dbname
+      REDIS_URL: redis://localhost:6379
+      MINIO_ENDPOINT: localhost:9002
+      MINIO_ACCESS_KEY: your_minio_user
+      MINIO_SECRET_KEY: your_minio_password
+      VAULT_ADDR: http://localhost:8200
+      VAULT_TOKEN: root-token
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      MODELSERVER_URL: http://localhost:8001
+      JAEGER_HOST: localhost
+      JAEGER_PORT: 6831
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Infrastructure ──────────────────────────────────────────────────────
+      - name: Start infrastructure stack
+        run: docker compose up -d db redis minio vault migrate
+        timeout-minutes: 5
+
+      - name: Wait for all services to be healthy
+        run: ./scripts/wait_for_healthy.sh
+        timeout-minutes: 3
+
+      # ── Python setup ────────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # ── Code Quality ─────────────────────────────────────────────────────────
+      - name: Lint with ruff
+        run: ruff check app/ modelserver/ evals/ tests/
+
+      - name: Type-check with mypy
+        run: mypy app/ --ignore-missing-imports --no-strict-optional
+        continue-on-error: true   # non-blocking for now; will enforce in 5.x
+
+      # ── Unit & Integration Tests ─────────────────────────────────────────────
+      - name: Run redaction tests
+        run: PYTHONPATH=. pytest tests/test_redaction.py -v --tb=short
+
+      - name: Run auth tests
+        run: PYTHONPATH=. pytest tests/test_auth.py -v --tb=short
+        continue-on-error: true
+
+      - name: Run RAG retrieval tests
+        run: PYTHONPATH=. pytest tests/test_rag_retrieval.py -v --tb=short
+        continue-on-error: true
+
+      # ── Eval Suites ──────────────────────────────────────────────────────────
+      - name: Run classification evaluation
+        run: PYTHONPATH=. python evals/run_classification_eval.py
+        env:
+          EVAL_GIT_SHA: ${{ github.sha }}
+
+      - name: Run RAG evaluation
+        run: PYTHONPATH=. python evals/run_rag_eval.py
+        env:
+          EVAL_GIT_SHA: ${{ github.sha }}
+
+      # ── Smoke Test ───────────────────────────────────────────────────────────
+      - name: Start FastAPI backend for smoke test
+        run: |
+          PYTHONPATH=. uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          sleep 5
+        env:
+          API_PORT: 8000
+
+      - name: Run smoke tests
+        run: ./scripts/smoke_test.sh
+        timeout-minutes: 2
+
+      # ── Upload Artifacts ─────────────────────────────────────────────────────
+      - name: Upload eval reports as CI artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-reports-${{ github.sha }}
+          path: |
+            evals/eval_report_classification.json
+            evals/eval_report_rag.json
+          retention-days: 30

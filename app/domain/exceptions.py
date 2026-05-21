@@ -50,3 +50,15 @@ class RequestIDNotFoundError(AppError):
     """Raised when request ID generation or header resolution fails in correlation gates (HTTP 500)."""
     def __init__(self, message: str = "Request correlation ID was missing or could not be generated."):
         super().__init__(message=message, code="REQUEST_ID_NOT_FOUND", http_status=500)
+
+
+class ConfigError(AppError):
+    """Raised when application configuration or validation thresholds are invalid (HTTP 500)."""
+    def __init__(self, message: str):
+        super().__init__(message=message, code="CONFIG_ERROR", http_status=500)
+
+
+class TracingError(AppError):
+    """Raised when connection to the tracing backend fails (HTTP 500)."""
+    def __init__(self, message: str):
+        super().__init__(message=message, code="TRACING_ERROR", http_status=500)
