@@ -14,9 +14,8 @@ venv/
 .vscode/
 .idea/
 
-# Data (raw issues are large, don't commit)
-data/*.json
-data/*.csv
+# Data — all raw/processed datasets are large; never commit
+data/
 
 # Docker
 *.log
@@ -26,6 +25,8 @@ models/
 *.pt
 *.pkl
 *.bin
+*.safetensors
+*.onnx
 
 # MinIO data
 minio_data/
@@ -36,5 +37,9 @@ dump.rdb
 # Traces
 traces/
 
-# RAG Corpus Data
-data/corpus/
+# Scratch / temp files
+scratch/
+logs/
+
+# Eval reports (generated on CI, stored in MinIO)
+evals/eval_report_*.json
